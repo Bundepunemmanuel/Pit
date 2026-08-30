@@ -13,7 +13,7 @@ export default function Document() {
           href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap"
           rel="stylesheet"
         />
-        <meta name="description" content="PIT — the internet picks the winner." />
+        <meta name="description" content="Zoloop — the internet picks the winner." />
       </Head>
       <body>
         <Main />
