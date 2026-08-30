@@ -1,4 +1,4 @@
-# PIT
+# ZOLOOP
 
 The internet picks the winner. Head-to-head product battles, voted on by
 real people, ranked by ELO rating.
@@ -7,7 +7,7 @@ real people, ranked by ELO rating.
 
 - Next.js 15.3.6 (Pages Router)
 - Tailwind CSS
-- Supabase (Postgres)
+- Supabase (Postgres + Storage)
 - Deployed on Vercel
 
 ## Setup
@@ -18,38 +18,63 @@ real people, ranked by ELO rating.
    npm install
    ```
 
-2. Create a Supabase project, then run the schema and seed data in the
-   Supabase SQL editor, in this order:
+2. In the Supabase SQL editor, run in this order:
 
    - `supabase-schema.sql`
+   - `supabase-migration-description-limit.sql`
    - `supabase-seed.sql`
+   - Enable Row Level Security on `products`, `categories`, `battles`,
+     `votes` (Table Editor → each table → RLS toggle), then run
+     `supabase-rls.sql`
 
-3. Copy `.env.local.example` to `.env.local` and fill in your Supabase
-   project URL and anon key (Supabase dashboard → Settings → API).
+3. One-time Storage setup: in the Supabase dashboard, go to
+   **Storage → New bucket**, name it `logos`, and mark it **public**.
+   That's what product logo uploads write to.
 
-4. Run locally:
+4. Copy `.env.local.example` to `.env.local` and fill in:
+   - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` — from
+     Supabase Settings → API (safe to expose, RLS limits what it can do)
+   - `SUPABASE_SERVICE_ROLE_KEY` — same page, the `service_role` key.
+     **Never** prefix this with `NEXT_PUBLIC_` or it'll ship to the
+     browser. Keep it out of any public chat, repo, or screenshot.
+
+5. Run locally:
 
    ```
    npm run dev
    ```
 
-5. Deploy: push to GitHub, import the repo in Vercel, add the same two
-   environment variables in the Vercel project settings.
+6. Deploy: push to GitHub, import in Vercel, add the same three env vars
+   in the Vercel project settings, deploy.
 
 ## What's here (MVP scope)
 
-- `products`, `categories`, `battles`, `votes` — the four core tables
-- Server-side voting (`pages/api/vote.js`) — vote counts and ELO ratings
-  are never trusted from the client
-- Homepage with a live battle, trending battles, and a leaderboard
-- Individual battle pages (`/battle/[slug]`) and product profile pages
+- `products`, `categories`, `battles`, `votes` tables
+- RLS: `anon` can only read; all writes go through the service-role key,
+  used exclusively inside `pages/api/*.js` server routes
+- Server-side voting (`pages/api/vote.js`) with per-battle dedup and ELO
+  rating updates
+- Product submission (`pages/api/submit-product.js`) — name, URL/@handle,
+  category, a 280-character description (enforced client-side, API-side,
+  and with a database constraint), and an optional logo upload (≤1MB) to
+  Supabase Storage. **Auto-publishes immediately** — no review queue.
+- Homepage with a live battle, trending battles, a category filter, and
+  a leaderboard, plus the submit form
+- Battle pages (`/battle/[slug]`) and product profile pages
   (`/product/[slug]`)
 - Full rankings page (`/rankings`)
+- Responsive layout — no fixed mobile-only width, scales up with `md:`
+  breakpoints
+
+## Known simplifications (documented in code comments)
+
+- Voter dedup is IP-based only (`pages/api/vote.js`) — not real fraud
+  prevention yet, just enough for the MVP
+- ELO updates per-vote with a small k-factor rather than batching on
+  battle completion
+- No review queue on submissions — anything submitted goes live
+  immediately, spam/abuse handling is not built
 
 ## Deliberately not built yet
 
-Auth, product claiming, payments, badges, tournaments, an API, and
-serious anti-fraud (see the note in `pages/api/vote.js`) are all left
-out on purpose. The schema is shaped so they can be layered on without
-restructuring the core tables — see the original architecture notes for
-what each of those would look like.
+Auth, product claiming, payments, badges, tournaments, an API.
