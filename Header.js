@@ -6,7 +6,7 @@ export default function Header() {
       <Link href="/" className="flex items-center gap-2">
         <img src="/logo.svg" alt="" className="h-6 w-6" />
         <span className="font-display text-lg uppercase tracking-wide">
-          PIT
+          Zoloop
         </span>
       </Link>
 
