@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { logError } from "./lib/logger";
 
 // SERVER-ONLY. Do not import this file from any component or page that
 // runs in the browser — it uses the service role key, which bypasses RLS
@@ -12,4 +13,19 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+if (!supabaseUrl || !serviceRoleKey) {
+  logError(
+    "supabase-admin.js",
+    new Error("Missing Supabase admin env vars"),
+    {
+      hasUrl: Boolean(supabaseUrl),
+      hasServiceRoleKey: Boolean(serviceRoleKey),
+      hint: "Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the server",
+    }
+  );
+}
+
+export const supabaseAdmin = createClient(
+  supabaseUrl || "https://placeholder.invalid",
+  serviceRoleKey || "placeholder-key"
+);

@@ -78,3 +78,44 @@ real people, ranked by ELO rating.
 ## Deliberately not built yet
 
 Auth, product claiming, payments, badges, tournaments, an API.
+
+## Recent changes (branding + hardening pass)
+
+- **Branding**: colors (`tailwind.config.js` → `cornerA` / `cornerB`) now
+  match the Zoloop logo exactly (`#FE4C12` orange, `#754BF6` purple,
+  sampled directly from the logo file). The header/favicon now use
+  `public/logo.png` (the real Zoloop mark) instead of the old placeholder
+  SVG.
+- **Categories**: `supabase-seed.sql` now seeds the full 25-category list
+  (Books, Business, Developer Tools, … Weather). The category filter
+  moved from mid-page to the top of the homepage, right under the header,
+  and is a row of tappable pills — never a native `<select>`/popup. The
+  "Add a product" form's category picker was changed from a `<select>`
+  to the same pill style for the same reason.
+- **Demo competitors removed**: `supabase-seed.sql` no longer seeds any
+  demo products or battles (previously included Claude vs ChatGPT,
+  Cursor vs Windsurf, etc.). It now seeds categories only — real
+  products/battles come from the submission form or manual inserts.
+- **Responsive design**: removed the hard `max-width: 480px` cap in
+  `styles.css` that forced a mobile-only layout regardless of screen
+  size. Layouts now scale through `sm:`/`md:`/`lg:` breakpoints
+  throughout, and `pages/rankings.js` was moved from a stray root-level
+  `rankings.js` (which meant `/rankings` 404'd) into `pages/` where
+  Next.js's router actually picks it up.
+- **Error handling + logging**: added `lib/logger.js`, a small structured
+  logger (`logError` / `logWarn` / `logInfo`) that prints one JSON line
+  per event with a timestamp, the calling context, and the full error
+  message/stack. Every `getServerSideProps`, API route, and interactive
+  client function (voting, submitting a product, uploading a logo,
+  navigating categories) is now wrapped in try/catch and logs through it,
+  so the cause of any failure is visible in your terminal (`npm run dev`)
+  or your hosting provider's function logs (e.g. Vercel → Deployments →
+  Functions). A top-level React error boundary in `pages/_app.js` also
+  catches any render-time crash, logs it, and shows a plain fallback
+  instead of a blank white screen.
+
+One pre-existing gap this pass did **not** fix: this README references
+`supabase-migration-description-limit.sql` and `supabase-rls.sql` in the
+setup steps, but neither file exists in the repo. You'll need to write
+those (or skip the description length DB constraint / apply RLS manually
+via the Supabase dashboard) before following step 2 above.

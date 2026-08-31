@@ -7,14 +7,15 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Palette pulled directly from the Zoloop logo (orange + purple Z).
         ink: "#0B0C10",
         inkCard: "#15161C",
         line: "#26272F",
         paper: "#F2EEE4",
-        cornerA: "#FF4B33",
-        cornerADim: "#4A2620",
-        cornerB: "#8B7CF6",
-        cornerBDim: "#2E2A47",
+        cornerA: "#FE4C12",
+        cornerADim: "#2F1510",
+        cornerB: "#754BF6",
+        cornerBDim: "#1A1532",
         gold: "#E8B84B",
         grayText: "#82838C",
       },
