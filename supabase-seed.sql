@@ -1,5 +1,7 @@
 -- Zoloop — seed data
--- Run after supabase-schema.sql
+-- Run after supabase-schema.sql. Safe to re-run any number of times —
+-- category inserts use ON CONFLICT so re-running never fails with a
+-- duplicate-key error, it just re-syncs name/icon for existing slugs.
 --
 -- NOTE: This seed file intentionally contains ONLY categories.
 -- Earlier versions of this seed shipped demo battles between real
@@ -33,7 +35,10 @@ insert into categories (name, slug, icon) values
   ('Sports', 'sports', '🏆'),
   ('Travel', 'travel', '✈️'),
   ('Utilities', 'utilities', '🛠️'),
-  ('Weather', 'weather', '☀️');
+  ('Weather', 'weather', '☀️')
+on conflict (slug) do update
+  set name = excluded.name,
+      icon = excluded.icon;
 
 -- No demo products or battles are seeded. Add real ones via the
 -- "Built something? Add it." form on the homepage, or insert rows into
