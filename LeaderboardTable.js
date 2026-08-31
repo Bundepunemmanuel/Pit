@@ -45,7 +45,7 @@ export default function LeaderboardTable({ products }) {
             >
               {rank}
             </div>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-inkCard font-display text-xs">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-white font-display text-xs">
               {p.name[0]}
             </div>
             <div className="min-w-0 flex-1">

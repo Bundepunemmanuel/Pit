@@ -4,8 +4,8 @@
 
 html,
 body {
-  background-color: #0b0c10;
-  color: #f2eee4;
+  background-color: #f2eee4;
+  color: #0b0c10;
   width: 100%;
   overflow-x: hidden;
 }
@@ -25,6 +25,6 @@ a {
 }
 
 ::selection {
-  background: #ff4b33;
+  background: #FE4C12;
   color: white;
 }

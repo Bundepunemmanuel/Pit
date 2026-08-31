@@ -16,7 +16,7 @@ export default function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-50 border-b border-line bg-ink/90 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-line bg-paper/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-8">
         <Link href="/" className="flex items-center gap-2" onClick={() => setMenuOpen(false)}>
           <img
@@ -31,10 +31,10 @@ export default function Header() {
 
         {/* Desktop nav */}
         <nav className="hidden items-center gap-6 font-mono text-[11px] uppercase tracking-wide text-grayText sm:flex">
-          <Link href="/" className="hover:text-paper">
+          <Link href="/" className="hover:text-ink">
             Battles
           </Link>
-          <Link href="/rankings" className="hover:text-paper">
+          <Link href="/rankings" className="hover:text-ink">
             Rankings
           </Link>
         </nav>
@@ -47,8 +47,8 @@ export default function Header() {
           aria-expanded={menuOpen}
           className="flex h-8 w-8 flex-col items-center justify-center gap-1 sm:hidden"
         >
-          <span className="h-0.5 w-5 bg-paper" />
-          <span className="h-0.5 w-5 bg-paper" />
+          <span className="h-0.5 w-5 bg-ink" />
+          <span className="h-0.5 w-5 bg-ink" />
         </button>
       </div>
 

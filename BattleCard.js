@@ -22,7 +22,7 @@ export default function BattleCard({ battle, live = true }) {
       battle,
     });
     return (
-      <div className="mx-5 mb-6 rounded-2xl border border-line bg-inkCard px-4 py-6 text-center font-mono text-xs text-grayText">
+      <div className="mx-5 mb-6 rounded-2xl border border-line bg-white px-4 py-6 text-center font-mono text-xs text-grayText">
         This battle couldn't be displayed.
       </div>
     );
@@ -83,7 +83,7 @@ export default function BattleCard({ battle, live = true }) {
         </div>
       )}
 
-      <div className="mx-auto rounded-2xl border border-line bg-inkCard px-4 pt-5 md:max-w-xl">
+      <div className="mx-auto rounded-2xl border border-line bg-white px-4 pt-5 md:max-w-xl">
         <div className="mb-3 flex justify-between font-mono text-[10px] font-bold tracking-wide">
           <span className="text-cornerA">RED CORNER</span>
           <span className="text-cornerB">BLUE CORNER</span>
