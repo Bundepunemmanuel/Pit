@@ -45,8 +45,12 @@ export default function LeaderboardTable({ products }) {
             >
               {rank}
             </div>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-white font-display text-xs">
-              {p.name[0]}
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-white font-display text-xs">
+              {p.logo_url ? (
+                <img src={p.logo_url} alt="" className="h-full w-full object-cover" />
+              ) : (
+                p.name[0]
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm font-bold">{p.name}</div>

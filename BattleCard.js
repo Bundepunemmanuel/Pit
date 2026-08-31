@@ -91,8 +91,16 @@ export default function BattleCard({ battle, live = true }) {
 
         <div className="flex items-start justify-between">
           <div className="flex w-[38%] flex-col items-center gap-2">
-            <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-cornerA bg-cornerADim font-display text-xl text-cornerA md:h-16 md:w-16">
-              {battle.product_a.name[0]}
+            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-cornerA bg-cornerADim font-display text-xl text-cornerA md:h-16 md:w-16">
+              {battle.product_a.logo_url ? (
+                <img
+                  src={battle.product_a.logo_url}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                battle.product_a.name[0]
+              )}
             </div>
             <div className="text-center text-sm font-bold md:text-base">
               {battle.product_a.name}
@@ -102,8 +110,16 @@ export default function BattleCard({ battle, live = true }) {
           <div className="mt-5 font-display text-sm text-grayText md:mt-6">VS</div>
 
           <div className="flex w-[38%] flex-col items-center gap-2">
-            <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-cornerB bg-cornerBDim font-display text-xl text-cornerB md:h-16 md:w-16">
-              {battle.product_b.name[0]}
+            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-cornerB bg-cornerBDim font-display text-xl text-cornerB md:h-16 md:w-16">
+              {battle.product_b.logo_url ? (
+                <img
+                  src={battle.product_b.logo_url}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                battle.product_b.name[0]
+              )}
             </div>
             <div className="text-center text-sm font-bold md:text-base">
               {battle.product_b.name}

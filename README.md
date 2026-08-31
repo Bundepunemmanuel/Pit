@@ -28,8 +28,11 @@ real people, ranked by ELO rating.
      `supabase-rls.sql`
 
 3. One-time Storage setup: in the Supabase dashboard, go to
-   **Storage → New bucket**, name it `logos`, and mark it **public**.
-   That's what product logo uploads write to.
+   **Storage → New bucket**, name it `logos`, mark it **public**, and set
+   the bucket's file type restriction to **PNG only** with a **2MB** size
+   limit — that matches the limits enforced in `pages/api/submit-product.js`.
+   If you skip this step, logo uploads fail with a `Bucket not found`
+   error (visible in your logs, see below) until the bucket exists.
 
 4. Copy `.env.local.example` to `.env.local` and fill in:
    - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` — from
@@ -54,12 +57,21 @@ real people, ranked by ELO rating.
   used exclusively inside `pages/api/*.js` server routes
 - Server-side voting (`pages/api/vote.js`) with per-battle dedup and ELO
   rating updates
-- Product submission (`pages/api/submit-product.js`) — name, URL/@handle,
-  category, a 280-character description (enforced client-side, API-side,
-  and with a database constraint), and an optional logo upload (≤1MB) to
-  Supabase Storage. **Auto-publishes immediately** — no review queue.
-- Homepage with a live battle, trending battles, a category filter, and
-  a leaderboard, plus the submit form
+- Product creation (`pages/api/submit-product.js`, `POST`) — name, website
+  URL, category, a 280-character description, and a required PNG logo
+  (≤2MB) uploaded to Supabase Storage. All five fields are required, both
+  client-side and re-checked server-side. **Auto-publishes immediately**
+  — no review queue.
+- Product search + recommendations (`pages/api/submit-product.js`, `GET`)
+  — `?q=text` for live search, `?category=id` for top-rated products in
+  a category (used as "recommended opponents")
+- Battle creation (`pages/api/vote.js`, `POST` with `action: "create"`) —
+  takes two existing product ids, creates a `status: "live"` battle
+  between them immediately, no approval step
+- Homepage with a live battle, trending battles, and a leaderboard. A
+  "Categories" tab and a "⚔️ Start a Battle" tab sit side by side at the
+  top; each expands its panel inline (search-and-select or add-a-product,
+  then start the battle) rather than opening a popup or native `<select>`
 - Battle pages (`/battle/[slug]`) and product profile pages
   (`/product/[slug]`)
 - Full rankings page (`/rankings`)
