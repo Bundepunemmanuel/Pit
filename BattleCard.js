@@ -3,16 +3,49 @@ import { logError, logWarn } from "./lib/logger";
 
 // battle shape expected:
 // {
-//   id, slug, votes_a, votes_b,
-//   product_a: { id, name, slug },
-//   product_b: { id, name, slug },
+//   id, slug, votes_a, votes_b, status, starts_at, ends_at, views, winner_id,
+//   product_a: { id, name, slug, logo_url },
+//   product_b: { id, name, slug, logo_url },
 // }
-export default function BattleCard({ battle, live = true }) {
+
+function formatDateTime(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch (err) {
+    logError("BattleCard.formatDateTime", err, { iso });
+    return null;
+  }
+}
+
+function formatTimeRemaining(endsAtIso) {
+  if (!endsAtIso) return null;
+  try {
+    const diffMs = new Date(endsAtIso).getTime() - Date.now();
+    if (diffMs <= 0) return null;
+    const hours = Math.floor(diffMs / (60 * 60 * 1000));
+    const days = Math.floor(hours / 24);
+    if (days >= 1) return `Ends in ${days}d ${hours % 24}h`;
+    if (hours >= 1) return `Ends in ${hours}h`;
+    const minutes = Math.max(1, Math.floor(diffMs / (60 * 1000)));
+    return `Ends in ${minutes}m`;
+  } catch (err) {
+    logError("BattleCard.formatTimeRemaining", err, { endsAtIso });
+    return null;
+  }
+}
+
+export default function BattleCard({ battle }) {
   const [votesA, setVotesA] = useState(battle?.votes_a ?? 0);
-  const [votesB, setVotesB] = useState(battle?.votes_b ?? 0);
   const [voted, setVoted] = useState(false);
   const [voting, setVoting] = useState(false);
   const [error, setError] = useState(null);
+  const [votesB, setVotesB] = useState(battle?.votes_b ?? 0);
 
   // Defensive guard: if a malformed battle object ever makes it this far,
   // fail loudly in the log with useful context instead of crashing render
@@ -32,8 +65,22 @@ export default function BattleCard({ battle, live = true }) {
   const pctA = total > 0 ? Math.round((votesA / total) * 100) : 50;
   const pctB = 100 - pctA;
 
+  const hasEnded =
+    battle.status !== "live" ||
+    (battle.ends_at && new Date(battle.ends_at) <= new Date());
+  const timeRemaining = !hasEnded ? formatTimeRemaining(battle.ends_at) : null;
+  const startedLabel = formatDateTime(battle.starts_at);
+  const endedLabel = formatDateTime(battle.ends_at);
+
+  const winnerProduct =
+    battle.winner_id === battle.product_a.id
+      ? battle.product_a
+      : battle.winner_id === battle.product_b.id
+      ? battle.product_b
+      : null;
+
   async function castVote(productId, side) {
-    if (voted || voting) return;
+    if (voted || voting || hasEnded) return;
     setVoting(true);
     setError(null);
 
@@ -76,18 +123,27 @@ export default function BattleCard({ battle, live = true }) {
 
   return (
     <div className="mx-5 mb-6 md:mx-8">
-      {live && (
-        <div className="mb-2 flex items-center justify-center gap-2 font-mono text-[11px] font-bold tracking-wide text-cornerA md:justify-start">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cornerA" />
-          LIVE BATTLE
-        </div>
-      )}
+      <div className="mb-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 font-mono text-[11px] font-bold tracking-wide md:justify-start">
+        {hasEnded ? (
+          <span className="text-grayText">ENDED</span>
+        ) : (
+          <span className="flex items-center gap-2 text-cornerA">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cornerA" />
+            LIVE BATTLE
+          </span>
+        )}
+        {timeRemaining && <span className="text-grayText">· {timeRemaining}</span>}
+        {typeof battle.views === "number" && (
+          <span className="text-grayText">· {battle.views.toLocaleString()} views</span>
+        )}
+      </div>
 
       <div className="mx-auto rounded-2xl border border-line bg-white px-4 pt-5 md:max-w-xl">
-        <div className="mb-3 flex justify-between font-mono text-[10px] font-bold tracking-wide">
-          <span className="text-cornerA">RED CORNER</span>
-          <span className="text-cornerB">BLUE CORNER</span>
-        </div>
+        {hasEnded && (
+          <div className="mb-3 rounded-lg border border-gold bg-paper px-3 py-2 text-center font-mono text-[11px] font-bold">
+            {winnerProduct ? `🏆 ${winnerProduct.name} wins` : "Tied — no winner"}
+          </div>
+        )}
 
         <div className="flex items-start justify-between">
           <div className="flex w-[38%] flex-col items-center gap-2">
@@ -145,26 +201,36 @@ export default function BattleCard({ battle, live = true }) {
           <div className="bg-cornerB" style={{ width: `${pctB}%` }} />
         </div>
 
-        <div className="pb-4 text-center font-mono text-[10px] text-grayText">
+        <div className="pb-2 text-center font-mono text-[10px] text-grayText">
           {total.toLocaleString()} VOTES
         </div>
 
-        <div className="-mx-4 flex gap-px overflow-hidden rounded-b-2xl">
-          <button
-            disabled={voted || voting}
-            onClick={() => castVote(battle.product_a.id, "a")}
-            className="flex-1 bg-cornerA py-4 font-display text-xs uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-          >
-            Vote {battle.product_a.name}
-          </button>
-          <button
-            disabled={voted || voting}
-            onClick={() => castVote(battle.product_b.id, "b")}
-            className="flex-1 bg-cornerB py-4 font-display text-xs uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-          >
-            Vote {battle.product_b.name}
-          </button>
-        </div>
+        {(startedLabel || endedLabel) && (
+          <div className="pb-4 text-center font-mono text-[10px] text-grayText">
+            {startedLabel && <span>Started {startedLabel}</span>}
+            {startedLabel && endedLabel && <span> · </span>}
+            {endedLabel && <span>{hasEnded ? "Ended" : "Ends"} {endedLabel}</span>}
+          </div>
+        )}
+
+        {!hasEnded && (
+          <div className="-mx-4 flex gap-px overflow-hidden rounded-b-2xl">
+            <button
+              disabled={voted || voting}
+              onClick={() => castVote(battle.product_a.id, "a")}
+              className="flex-1 bg-cornerA py-4 font-display text-xs uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              Vote {battle.product_a.name}
+            </button>
+            <button
+              disabled={voted || voting}
+              onClick={() => castVote(battle.product_b.id, "b")}
+              className="flex-1 bg-cornerB py-4 font-display text-xs uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              Vote {battle.product_b.name}
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
