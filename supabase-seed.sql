@@ -7,39 +7,50 @@
 -- Earlier versions of this seed shipped demo battles between real
 -- competitor products (Claude vs ChatGPT, Cursor vs Windsurf, etc.) —
 -- those have been removed on purpose. Products and battles are now
--- expected to come in through the "Add it" submission form on the
--- homepage, seeded by real users of the platform.
+-- expected to come in through the battle-creation flow on the homepage,
+-- seeded by real users of the platform.
 
 insert into categories (name, slug, icon) values
-  ('Books', 'books', '📚'),
-  ('Business', 'business', '💼'),
-  ('Developer Tools', 'developer-tools', '💻'),
-  ('Education', 'education', '🎓'),
-  ('Entertainment', 'entertainment', '🎬'),
-  ('Finance', 'finance', '💰'),
-  ('Food & Drink', 'food-drink', '🍔'),
-  ('Games', 'games', '🎮'),
-  ('Graphics & Design', 'graphics-design', '🎨'),
-  ('Health & Fitness', 'health-fitness', '💪'),
-  ('Lifestyle', 'lifestyle', '🌿'),
-  ('Magazines & Newspapers', 'magazines-newspapers', '🗞️'),
-  ('Medical', 'medical', '🏥'),
-  ('Music', 'music', '🎵'),
-  ('Navigation', 'navigation', '🧭'),
-  ('News', 'news', '📰'),
-  ('Photo & Video', 'photo-video', '📸'),
+  ('AI', 'ai', '🤖'),
   ('Productivity', 'productivity', '⚡'),
-  ('Reference', 'reference', '📖'),
-  ('Shopping', 'shopping', '🛍️'),
-  ('Social Networking', 'social-networking', '👥'),
-  ('Sports', 'sports', '🏆'),
+  ('Developer Tools', 'developer-tools', '💻'),
+  ('Design', 'design', '🎨'),
+  ('Note-taking', 'note-taking', '📝'),
+  ('Collaboration', 'collaboration', '🤝'),
+  ('SaaS', 'saas', '☁️'),
+  ('Marketing', 'marketing', '📣'),
+  ('Finance', 'finance', '💰'),
+  ('Business', 'business', '💼'),
+  ('E-commerce', 'e-commerce', '🛒'),
+  ('Photo & Video', 'photo-video', '📸'),
+  ('Music', 'music', '🎵'),
+  ('Entertainment', 'entertainment', '🎬'),
+  ('Games', 'games', '🎮'),
+  ('Health & Fitness', 'health-fitness', '💪'),
+  ('Education', 'education', '🎓'),
   ('Travel', 'travel', '✈️'),
+  ('Shopping', 'shopping', '🛍️'),
+  ('Social', 'social', '👥'),
   ('Utilities', 'utilities', '🛠️'),
-  ('Weather', 'weather', '☀️')
+  ('News', 'news', '📰')
 on conflict (slug) do update
   set name = excluded.name,
       icon = excluded.icon;
 
--- No demo products or battles are seeded. Add real ones via the
--- "Built something? Add it." form on the homepage, or insert rows into
--- `products` / `battles` directly if you're bootstrapping content.
+-- Replaces the old 25-category consumer-app list (Books, Magazines &
+-- Newspapers, Medical, Navigation, Sports, Weather, etc.) with the
+-- founder/competitor-focused list above. Old categories are removed —
+-- but ONLY if nothing still references them, so this can never break a
+-- foreign key or silently orphan an existing product. If you still have
+-- products tagged with an old category, that category (and only that
+-- one) will stick around until you recategorize those products.
+delete from categories
+where slug not in (
+  'ai','productivity','developer-tools','design','note-taking',
+  'collaboration','saas','marketing','finance','business','e-commerce',
+  'photo-video','music','entertainment','games','health-fitness',
+  'education','travel','shopping','social','utilities','news'
+)
+and id not in (
+  select category_id from products where category_id is not null
+);

@@ -138,6 +138,14 @@ export default function BattleCard({ battle }) {
         )}
       </div>
 
+      <div className="mx-auto md:max-w-xl">
+        {battle.question && (
+          <div className="mb-2 text-center text-sm font-bold text-ink md:text-left">
+            {battle.question}
+          </div>
+        )}
+      </div>
+
       <div className="mx-auto rounded-2xl border border-line bg-white px-4 pt-5 md:max-w-xl">
         {hasEnded && (
           <div className="mb-3 rounded-lg border border-gold bg-paper px-3 py-2 text-center font-mono text-[11px] font-bold">

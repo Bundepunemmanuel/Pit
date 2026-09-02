@@ -18,18 +18,24 @@ real people, ranked by rating.
    npm install
    ```
 
-2. In the Supabase SQL editor, run in this order:
+2. In the Supabase SQL editor:
 
-   - `supabase-schema.sql` — includes a migration block at the bottom
-     (`views` column on battles, new-product rating default of 1000, and
-     a rating-floor constraint). **Safe to re-run** even if you already
-     ran an earlier version of this file — every statement in the
-     migration block is idempotent.
-   - `supabase-migration-description-limit.sql`
-   - `supabase-seed.sql`
-   - Enable Row Level Security on `products`, `categories`, `battles`,
-     `votes` (Table Editor → each table → RLS toggle), then run
-     `supabase-rls.sql`
+   - **First-time setup** (brand new database): run the whole
+     `supabase-schema.sql` file top to bottom, then
+     `supabase-migration-description-limit.sql`, then `supabase-seed.sql`,
+     then enable Row Level Security on `products`, `categories`,
+     `battles`, `votes` (Table Editor → each table → RLS toggle) and run
+     `supabase-rls.sql`.
+   - **Already-running database** (you've run an earlier version of this
+     file before): do **NOT** re-run the whole file — the `create table`
+     statements near the top aren't safe to repeat and will fail with
+     `relation "..." already exists`. Instead, run only the two
+     `-- ---------- migration ...` blocks near the bottom of
+     `supabase-schema.sql` (everything from the first
+     `-- ---------- migration` comment to the end of the file). Both
+     migration blocks are idempotent — safe to run again even if you're
+     not sure whether you already ran them. Then re-run `supabase-seed.sql`
+     (also idempotent) to pick up the new category list.
 
 3. One-time Storage setup: in the Supabase dashboard, go to
    **Storage → New bucket**, name it `logos`, mark it **public**, and set
@@ -59,44 +65,72 @@ real people, ranked by rating.
 - `products`, `categories`, `battles`, `votes` tables
 - RLS: `anon` can only read; all writes go through the service-role key,
   used exclusively inside `pages/api/*.js` server routes
-- **Rating system** (`elo.js` — filename kept for import stability, but
-  this is no longer Elo): new products start at 1000. A win is worth flat
-  +64, a loss is flat −64, floored at 0 — same delta regardless of the
-  opponent's rating. Existing products from before this system shipped
-  keep whatever rating they already had.
+- **Rating system** (`elo.js`): dynamic Elo. New products start at 1000,
+  floored at 0 — a win against a stronger opponent moves your rating more
+  than a win against a weaker one. Ratings update per individual vote
+  with a small K-factor (4) rather than once per completed battle, since
+  a battle can accumulate hundreds of votes. Existing products from
+  before the 1000 baseline shipped keep whatever rating they already had.
 - **Matchmaking gate**: two products can only battle if their ratings are
   within 200 points of each other (`isMatchAllowed` in `elo.js`),
   enforced server-side in `pages/api/vote.js` at battle-creation time.
-- **Rematch cooldown**: the same pairing (in either order) can't create a
-  new battle while one between them is still live, or if they fought
-  within the last 24h.
+- **Rematch cooldown**: the same pairing, under the *same battle
+  question*, can't create a new battle while one between them is still
+  live, or if they fought over that exact question within the last 24h.
+  The same two products CAN run separate simultaneous battles under
+  different questions (e.g. "best for coding" vs "best for writing").
 - **Battle duration**: required at creation — 1 hour, 24 hours, or 7
   days, chosen from a fixed whitelist server-side (never a client-sent
   timestamp). `starts_at`/`ends_at` are stored and shown on the battle
   card. Once `ends_at` passes, the battle is lazily flipped from `live`
   to `completed` (with a winner set from whichever side had more votes,
   or no winner if tied) the next time anyone loads it — no cron job.
+- **Battle question**: every battle stores the specific question it's
+  settling (`battles.question`), shown on the battle card. Defaults to
+  "Which is better: A or B?" if the person doesn't customize it.
 - **Views**: every `/battle/[slug]` page load increments that battle's
-  `views` counter, shown alongside its vote count.
+  `views` counter, shown alongside its vote count. A `clicks` column
+  also exists on `battles` for future website-click tracking, but
+  nothing writes to it yet — no click-tracking redirect endpoint has
+  been built.
+- **Fuzzy, typo-tolerant product search**: `search_products()` (a
+  Postgres function defined in `supabase-schema.sql`, using the
+  `pg_trgm` extension) ranks results by string similarity, not just
+  substring match — catches things like "chatgtp" or partial spelling.
+  Also checks a `products.aliases` column for exact alias matches (e.g.
+  "GPT" → ChatGPT), though there's no UI yet for adding aliases — the
+  column just exists for now, fillable manually via the Supabase table
+  editor.
 - Server-side voting (`pages/api/vote.js`) with 1-vote-per-IP-per-battle
   dedup and rating updates on every vote
-- Product creation (`pages/api/submit-product.js`, `POST`) — name, website
-  URL, category, a 280-character description, and a required PNG logo
-  (≤2MB) uploaded to Supabase Storage. All five fields are required, both
-  client-side and re-checked server-side. **Auto-publishes immediately**
-  — no review queue.
+- Product creation (`pages/api/submit-product.js`, `POST`) — only name,
+  website URL, and category are required. **Description and logo are
+  optional**: if left blank, the server fetches the website's Open Graph
+  tags (`og:description`, `og:image`, falling back to `/favicon.ico`)
+  and uses those instead, converting any image to PNG via `sharp`. A
+  manually provided description or uploaded PNG logo always overrides
+  the auto-fetched one. If auto-fetch fails and no description was
+  given, product creation is rejected with a message asking for one —
+  a completely blank description everywhere isn't allowed, but a missing
+  logo is fine (falls back to a letter avatar in the UI).
+  **Auto-publishes immediately** — no review queue.
 - Product search + recommendations (`pages/api/submit-product.js`, `GET`)
-  — `?q=text` for live search, `?category=id` for top-rated products in
-  a category (used as "recommended opponents"). Either battle slot can be
-  filled first — there's no "your product" concept since this app has no
-  accounts, so nothing is actually owned by anyone.
+  — `?q=text` for fuzzy search, `?category=id` for top-rated products in
+  a category. Either battle slot can be filled first — there's no "your
+  product" concept since this app has no accounts, so nothing is
+  actually owned by anyone.
 - Battle creation (`pages/api/vote.js`, `POST` with `action: "create"`) —
-  takes two existing product ids and a required duration, creates a
-  `status: "live"` battle between them immediately, no approval step
-- Homepage with a live battle, trending battles, and a leaderboard. A
-  "Categories" tab and a "⚔️ Start a Battle" tab sit side by side at the
-  top; each expands its panel inline (search-and-select or add-a-product,
-  then start the battle) rather than opening a popup or native `<select>`.
+  takes two existing product ids, an optional custom question, and a
+  required duration, creates a `status: "live"` battle immediately, no
+  approval step.
+- Homepage "Challenge a competitor" flow: one input —
+  `yourproduct.com vs competitor.com` — parsed on the literal word " vs "
+  between the two terms. Runs a fuzzy search for both sides at once, each
+  showing results to pick from or a `+ Add "{term}"` inline mini-form if
+  nothing matches. Once both sides are resolved, shows an editable
+  battle-question field and the required duration picker, then
+  "Create Battle". A "Categories" tab sits beside it, same
+  toggle-open-inline pattern, never a popup or native `<select>`.
   Category lists scroll horizontally rather than wrapping.
 - Rankings page with category filter tabs and gold/silver/bronze tier
   styling for the top 3
@@ -112,9 +146,8 @@ real people, ranked by rating.
 
 - Voter dedup is IP-based only (`pages/api/vote.js`) — not real fraud
   prevention yet, just enough for the MVP
-- Rating movement is a flat ±64 per result, not a dynamic system that
-  weighs the opponent's strength — simpler to reason about, but doesn't
-  reward upset wins more than expected ones
+- Rating updates per-vote with a small K-factor rather than batching once
+  when a battle completes — see the comment at the top of `elo.js`
 - The rematch cooldown and rating-gap matchmaking check happen at
   battle-*creation* time only — they don't affect an already-live battle
 - Battle expiry is lazy (checked on read, not via a scheduled job), so a
@@ -123,6 +156,24 @@ real people, ranked by rating.
   the homepage or that battle's page
 - No review queue on submissions — anything submitted goes live
   immediately, spam/abuse handling is not built
+- Auto-fetched logos/descriptions depend on the target site actually
+  having Open Graph tags and not blocking the fetch — sites that block
+  bot user agents, have no OG data, or time out will fail auto-fetch
+  gracefully (falling back to a letter avatar / requiring a manual
+  description), not error out
+- The "vs" input parser only recognizes the literal word " vs " (or
+  "vs.") between the two terms — there's no natural-language fallback if
+  someone phrases it differently
+- Category auto-suggestion (inferring a category from the site's content)
+  was scoped out — category is still a manual required pick from the
+  chip list. Nothing in this codebase calls an LLM to do that inference.
+- Fuzzy search (`search_products()`, using `pg_trgm`) is meaningfully
+  better than plain substring matching but isn't a full search engine —
+  no typo tolerance tuning, no synonym dictionary beyond the manually
+  filled `aliases` column, which has no UI yet
+- Website-click tracking has a `clicks` column reserved for it, but no
+  redirect endpoint or UI increments it yet — it will always read 0
+  until that's built
 
 ## Deliberately not built yet
 
@@ -221,3 +272,87 @@ One pre-existing gap this pass did **not** fix: this README references
 setup steps, but neither file exists in the repo. You'll need to write
 those (or skip the description length DB constraint / apply RLS manually
 via the Supabase dashboard) before following step 2 above.
+
+## Recent changes (single-input flow + Elo revert)
+
+- **Rating system reverted to dynamic Elo.** A brief flat ±64-per-result
+  system shipped in the previous pass; this pass reverted it back to
+  proper Elo (`elo.js`), because a later product decision called for
+  upset wins to matter more than expected ones. The 1000 starting
+  rating, 0 floor, and 200-point matchmaking gate are all unchanged —
+  only the per-vote math changed back.
+- **Category list replaced.** The old 25-category consumer-app list
+  (Books, Magazines & Newspapers, Medical, Navigation, Sports, Weather,
+  etc.) is gone, replaced with a 22-category founder/competitor-focused
+  list (AI, Productivity, Developer Tools, Design, Note-taking,
+  Collaboration, SaaS, Marketing, Finance, Business, E-commerce, and
+  more — see `supabase-seed.sql` for the full list). Old categories are
+  deleted on re-seed **only if no product still references them**, so
+  this can never orphan an existing product or violate a foreign key.
+- **Battles now carry a `question`** (e.g. "Which is better for
+  launching a product?"), separate from either product's own
+  description. This is what lets the same two products run multiple
+  simultaneous battles under different questions — the rematch cooldown
+  is now scoped to (pairing + question), not just pairing.
+- **Fuzzy, typo-tolerant search added** via Postgres's `pg_trgm`
+  extension and a new `search_products()` SQL function (see
+  `supabase-schema.sql`'s second migration block) — ranks results by
+  string similarity instead of requiring an exact substring match, and
+  also checks a new (currently UI-less) `aliases` column for exact
+  alias matches.
+- **Product creation drastically simplified.** Previously name, website,
+  category, description, AND a PNG logo were all required up front. Now
+  only name, website, and category are required — description and logo
+  are optional and auto-fetched server-side from the site's Open Graph
+  tags if left blank (logo converted to PNG via the new `sharp`
+  dependency), with any manually provided value always taking priority
+  over the auto-fetched one.
+- **Homepage flow collapsed into one input.** The old two-box "Product
+  A" / "Product B" search flow is gone, replaced with a single
+  `yourproduct.com vs competitor.com` field that parses on " vs " and
+  searches both sides at once. The "Start a Battle" tab is now labeled
+  "⚔️ Challenge a competitor", and the final button is "Create Battle"
+  instead of "Start Battle". The old standalone "🔥 Recommended
+  opponents" chip feature (suggesting an opponent by category once one
+  side was picked) was removed in favor of this faster typed-input path
+  — it may be worth re-adding later as a fallback for people who don't
+  know who to challenge, but it isn't there right now.
+- **`pages/api/submit-product.js`'s `GET ?q=` search** now calls the new
+  `search_products()` Postgres function via `.rpc()` instead of a plain
+  `ilike` query, and reshapes the flat function result back into the
+  same `{ category: { name, icon } }` nested shape the UI already
+  expected, to minimize changes elsewhere.
+- **`package.json`**: added `sharp` as a real dependency (previously only
+  available in the assistant's own sandbox) — required for the
+  auto-fetched-logo-to-PNG conversion. Run `npm install` again after
+  pulling this change.
+
+### Explicitly scoped out of this pass (from the same source doc)
+
+These were called out in the flow-redesign document this pass was based
+on, but intentionally left for later rather than bundled in:
+
+- Claiming/ownership (X login or magic-link auth) — no accounts exist in
+  this app yet at all
+- Website-click tracking — the `clicks` column exists, nothing writes to
+  it
+- Battle page actions beyond voting (share, visit, challenge-another,
+  browse-related) and the post-vote result panel
+- Shareable result-card images (would need real image generation, e.g.
+  `@vercel/og` — the single biggest remaining piece)
+- Homepage hero copy split for voters vs. founders, and the
+  `?product=...&vs=...` instant-battle URL pattern
+- Category auto-suggestion from site content (would need an LLM call;
+  none is wired into this codebase)
+
+### A note on what I could and couldn't verify myself
+
+The auto-fetch-metadata and logo-conversion code
+(`pages/api/submit-product.js`'s `fetchMetadata` / `fetchAndConvertLogo`)
+was written carefully but **could not be tested end-to-end** in the
+environment this was built in, which has no outbound network access. The
+logic is sound and defensively written (timeouts, try/catch around every
+fetch, graceful fallback on any failure), but real websites are messy —
+expect to find and fix edge cases (unusual OG tag formats, sites that
+block the request outright, redirects, etc.) once this runs against real
+traffic on Vercel.
