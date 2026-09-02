@@ -1,0 +1,427 @@
+import crypto from "crypto";
+import { supabaseAdmin as supabase } from "../../supabase-admin";
+import { calculateElo, isMatchAllowed, MAX_RATING_GAP } from "../../elo";
+import { logError, logWarn } from "../../lib/logger";
+
+// Uses the service-role client on purpose — RLS blocks anon from writing
+// to battles/products/votes, so only this server-side route (never the
+// browser) can record a vote, create a battle, or move a rating.
+//
+// This file handles two things via the same POST route, dispatched by
+// body.action:
+//   (no action, or action omitted) -> cast a vote on an existing battle
+//   action: "create"                -> create a new live battle between
+//                                       two existing products (the "Start
+//                                       a Battle" flow)
+
+// MVP NOTE on voter identification:
+// This hashes the requester's IP + battle id to build a one-vote-per-battle
+// key. That's intentionally simple for the MVP and is NOT sufficient
+// fraud prevention on its own (people can switch IPs). The real version
+// should combine an anonymous cookie ID with this IP hash, then layer in
+// rate limiting and duplicate-fingerprint detection.
+function getVoterHash(req, battleId) {
+  const ip =
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    "unknown";
+  return crypto.createHash("sha256").update(`${ip}:${battleId}`).digest("hex");
+}
+
+function slugify(input) {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 60);
+}
+
+// Whitelist of allowed battle durations, in hours. NEVER accept an
+// arbitrary duration or a client-sent end timestamp — a client could
+// otherwise fake a far-future (never-ending) or already-past (instantly
+// completable) battle. Only these three values are valid.
+const ALLOWED_DURATION_HOURS = { "1h": 1, "24h": 24, "7d": 24 * 7 };
+
+async function createBattle(req, res) {
+  try {
+    const { productAId, productBId, duration, question } = req.body || {};
+
+    if (!productAId || !productBId) {
+      logWarn("api/vote.createBattle", "Missing productAId or productBId", {
+        productAId,
+        productBId,
+      });
+      return res
+        .status(400)
+        .json({ error: "productAId and productBId are required" });
+    }
+    if (productAId === productBId) {
+      logWarn("api/vote.createBattle", "Cannot battle a product against itself", {
+        productAId,
+      });
+      return res.status(400).json({ error: "Pick two different products" });
+    }
+
+    const durationHours = ALLOWED_DURATION_HOURS[duration];
+    if (!durationHours) {
+      logWarn("api/vote.createBattle", "Invalid or missing duration", { duration });
+      return res.status(400).json({
+        error: "Pick how long the battle should last (1h, 24h, or 7d)",
+      });
+    }
+
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select("id, name, slug, rating")
+      .in("id", [productAId, productBId])
+      .eq("status", "active");
+
+    if (productsError) {
+      logError("api/vote.createBattle.fetchProducts", productsError, {
+        productAId,
+        productBId,
+      });
+      return res.status(500).json({ error: "Could not verify products" });
+    }
+    if (!products || products.length !== 2) {
+      logWarn("api/vote.createBattle", "One or both products not found/active", {
+        productAId,
+        productBId,
+        found: products?.length ?? 0,
+      });
+      return res
+        .status(404)
+        .json({ error: "One or both products couldn't be found" });
+    }
+
+    const productA = products.find((p) => p.id === productAId);
+    const productB = products.find((p) => p.id === productBId);
+
+    // The person can edit the default question, but never send a blank
+    // one — if they somehow do, fall back to a generated one server-side
+    // too (defense in depth, mirrors the client always prefilling this).
+    const finalQuestion =
+      (question && question.trim()) ||
+      `Which is better: ${productA.name} or ${productB.name}?`;
+
+    // Matchmaking gate — a much stronger product can't be challenged by
+    // (or challenge) a much weaker one.
+    if (!isMatchAllowed(productA.rating, productB.rating)) {
+      logWarn("api/vote.createBattle", "Rating gap too large", {
+        productAId,
+        productBId,
+        ratingA: productA.rating,
+        ratingB: productB.rating,
+        gap: Math.abs(productA.rating - productB.rating),
+      });
+      return res.status(400).json({
+        error: `These two are too far apart in rating to battle (max ${MAX_RATING_GAP}-point gap). Pick a closer match.`,
+      });
+    }
+
+    // Cooldown — block re-matching the same pairing UNDER THE SAME
+    // QUESTION (in either product order) if they're already in a live
+    // battle over it, or fought over it within the last 24h. Same two
+    // products CAN run separate battles under different questions
+    // ("best for coding" vs "best for writing") — that's intentional.
+    const cooldownStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: recentBattles, error: recentError } = await supabase
+      .from("battles")
+      .select("id, slug, status, created_at")
+      .or(
+        `and(product_a_id.eq.${productAId},product_b_id.eq.${productBId}),and(product_a_id.eq.${productBId},product_b_id.eq.${productAId})`
+      )
+      .eq("question", finalQuestion)
+      .or(`status.eq.live,created_at.gte.${cooldownStart}`)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (recentError) {
+      logError("api/vote.createBattle.checkCooldown", recentError, {
+        productAId,
+        productBId,
+      });
+      return res.status(500).json({ error: "Could not verify battle history" });
+    }
+    if (recentBattles && recentBattles.length > 0) {
+      const existing = recentBattles[0];
+      logWarn("api/vote.createBattle", "Rematch blocked by cooldown", {
+        productAId,
+        productBId,
+        existingBattleSlug: existing.slug,
+        existingBattleStatus: existing.status,
+      });
+      return res.status(409).json({
+        error:
+          existing.status === "live"
+            ? "These two already have a live battle — go vote on that one."
+            : "These two just battled — they can rematch after a 24h cooldown.",
+        existingBattleSlug: existing.slug,
+      });
+    }
+
+    const baseSlug =
+      slugify(`${productA.slug}-vs-${productB.slug}`) || `battle-${Date.now()}`;
+    const startsAt = new Date();
+    const endsAt = new Date(startsAt.getTime() + durationHours * 60 * 60 * 1000);
+
+    let insertResult = await supabase
+      .from("battles")
+      .insert({
+        slug: baseSlug,
+        product_a_id: productA.id,
+        product_b_id: productB.id,
+        status: "live",
+        question: finalQuestion,
+        starts_at: startsAt.toISOString(),
+        ends_at: endsAt.toISOString(),
+      })
+      .select("id, slug")
+      .single();
+
+    if (insertResult.error?.code === "23505") {
+      // This exact pairing has battled before (slug collision) — retry
+      // once with a short unique suffix rather than failing outright.
+      const retrySlug = `${baseSlug}-${Date.now().toString(36)}`;
+      insertResult = await supabase
+        .from("battles")
+        .insert({
+          slug: retrySlug,
+          product_a_id: productA.id,
+          product_b_id: productB.id,
+          status: "live",
+          question: finalQuestion,
+          starts_at: startsAt.toISOString(),
+          ends_at: endsAt.toISOString(),
+        })
+        .select("id, slug")
+        .single();
+    }
+
+    if (insertResult.error) {
+      logError("api/vote.createBattle.insert", insertResult.error, {
+        productAId,
+        productBId,
+        baseSlug,
+      });
+      return res.status(500).json({ error: "Could not create battle" });
+    }
+
+    return res.status(200).json({ battle: insertResult.data });
+  } catch (err) {
+    logError("api/vote.createBattle", err, { body: req.body });
+    return res
+      .status(500)
+      .json({ error: "Something went wrong creating the battle" });
+  }
+}
+
+async function castVote(req, res) {
+  try {
+    const { battleId, productId } = req.body || {};
+    if (!battleId || !productId) {
+      logWarn("api/vote.castVote", "Missing battleId or productId", {
+        battleId,
+        productId,
+      });
+      return res
+        .status(400)
+        .json({ error: "battleId and productId are required" });
+    }
+
+    // 1. Verify the battle exists and is live.
+    const { data: battle, error: battleError } = await supabase
+      .from("battles")
+      .select(
+        "id, status, votes_a, votes_b, ends_at, product_a_id, product_b_id, product_a:product_a_id(id, rating), product_b:product_b_id(id, rating)"
+      )
+      .eq("id", battleId)
+      .single();
+
+    if (battleError || !battle) {
+      if (battleError) {
+        logError("api/vote.castVote.fetchBattle", battleError, { battleId });
+      } else {
+        logWarn("api/vote.castVote", "Battle not found", { battleId });
+      }
+      return res.status(404).json({ error: "Battle not found" });
+    }
+
+    // Lazily expire this battle if its time is up, even if a stale
+    // "live" status is still sitting on the row.
+    if (battle.ends_at && new Date(battle.ends_at) <= new Date()) {
+      const winnerId =
+        battle.votes_a === battle.votes_b
+          ? null
+          : battle.votes_a > battle.votes_b
+          ? battle.product_a_id
+          : battle.product_b_id;
+      const { error: closeError } = await supabase
+        .from("battles")
+        .update({ status: "completed", winner_id: winnerId })
+        .eq("id", battleId);
+      if (closeError) {
+        logError("api/vote.castVote.autoClose", closeError, { battleId });
+      }
+      logWarn("api/vote.castVote", "Vote rejected: battle time is up", {
+        battleId,
+        endsAt: battle.ends_at,
+      });
+      return res.status(400).json({ error: "This battle has ended" });
+    }
+
+    if (battle.status !== "live") {
+      logWarn("api/vote.castVote", "Vote rejected: battle not live", {
+        battleId,
+        status: battle.status,
+      });
+      return res.status(400).json({ error: "This battle isn't live" });
+    }
+
+    const isA = productId === battle.product_a_id;
+    const isB = productId === battle.product_b_id;
+    if (!isA && !isB) {
+      logWarn("api/vote.castVote", "productId not part of this battle", {
+        battleId,
+        productId,
+      });
+      return res.status(400).json({ error: "productId is not in this battle" });
+    }
+
+    // 2. Identify voter, check for a duplicate vote (1 vote per IP per battle).
+    const voterHash = getVoterHash(req, battleId);
+
+    const { error: voteInsertError } = await supabase.from("votes").insert({
+      battle_id: battleId,
+      product_id: productId,
+      voter_hash: voterHash,
+    });
+
+    if (voteInsertError) {
+      // Unique constraint violation = already voted on this battle.
+      if (voteInsertError.code === "23505") {
+        logWarn("api/vote.castVote", "Duplicate vote rejected", {
+          battleId,
+          voterHash,
+        });
+        return res.status(409).json({ error: "You already voted on this battle" });
+      }
+      logError("api/vote.castVote.insertVote", voteInsertError, {
+        battleId,
+        productId,
+      });
+      return res.status(500).json({ error: "Could not record vote" });
+    }
+
+    // 3. Update the cached vote counts on the battle.
+    const newVotesA = battle.votes_a + (isA ? 1 : 0);
+    const newVotesB = battle.votes_b + (isB ? 1 : 0);
+
+    const { error: battleUpdateError } = await supabase
+      .from("battles")
+      .update({ votes_a: newVotesA, votes_b: newVotesB })
+      .eq("id", battleId);
+
+    if (battleUpdateError) {
+      // The vote itself is already recorded, so don't fail the request —
+      // but this needs to be visible, because the cached count is now
+      // stale until someone investigates.
+      logError("api/vote.castVote.updateBattleCounts", battleUpdateError, {
+        battleId,
+        newVotesA,
+        newVotesB,
+      });
+    }
+
+    // 4. Move ratings using dynamic Elo (see elo.js).
+    const { newRatingA, newRatingB } = calculateElo(
+      battle.product_a.rating,
+      battle.product_b.rating,
+      isA ? 1 : 0
+    );
+
+    const { error: ratingAError } = await supabase
+      .from("products")
+      .update({ rating: newRatingA })
+      .eq("id", battle.product_a_id);
+
+    if (ratingAError) {
+      logError("api/vote.castVote.updateRatingA", ratingAError, {
+        productId: battle.product_a_id,
+        newRatingA,
+      });
+    } else {
+      const { error: historyAError } = await supabase.from("rating_history").insert({
+        product_id: battle.product_a_id,
+        battle_id: battleId,
+        rating: newRatingA,
+      });
+      if (historyAError) {
+        // Non-fatal — Form/confidence just won't reflect this one data
+        // point, but the rating itself is already correctly saved.
+        logError("api/vote.castVote.logHistoryA", historyAError, {
+          productId: battle.product_a_id,
+        });
+      }
+    }
+
+    const { error: ratingBError } = await supabase
+      .from("products")
+      .update({ rating: newRatingB })
+      .eq("id", battle.product_b_id);
+
+    if (ratingBError) {
+      logError("api/vote.castVote.updateRatingB", ratingBError, {
+        productId: battle.product_b_id,
+        newRatingB,
+      });
+    } else {
+      const { error: historyBError } = await supabase.from("rating_history").insert({
+        product_id: battle.product_b_id,
+        battle_id: battleId,
+        rating: newRatingB,
+      });
+      if (historyBError) {
+        logError("api/vote.castVote.logHistoryB", historyBError, {
+          productId: battle.product_b_id,
+        });
+      }
+    }
+
+    const total = newVotesA + newVotesB;
+    return res.status(200).json({
+      votesA: newVotesA,
+      votesB: newVotesB,
+      pctA: total > 0 ? Math.round((newVotesA / total) * 100) : 50,
+      pctB: total > 0 ? Math.round((newVotesB / total) * 100) : 50,
+    });
+  } catch (err) {
+    logError("api/vote.castVote", err, { body: req.body });
+    return res
+      .status(500)
+      .json({ error: "Something went wrong recording your vote" });
+  }
+}
+
+export default async function handler(req, res) {
+  // The whole handler is wrapped so any unexpected exception (a bad env
+  // var, a Supabase client throwing instead of returning an error object,
+  // a network failure) still gets logged with full context and returns a
+  // clean 500 — instead of Next.js printing an unhelpful generic crash.
+  try {
+    if (req.method !== "POST") {
+      res.setHeader("Allow", ["POST"]);
+      logWarn("api/vote", "Rejected non-POST request", { method: req.method });
+      return res.status(405).json({ error: "Method not allowed" });
+    }
+
+    const { action } = req.body || {};
+    if (action === "create") {
+      return createBattle(req, res);
+    }
+    return castVote(req, res);
+  } catch (err) {
+    logError("api/vote", err, { body: req.body });
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+}

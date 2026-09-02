@@ -102,18 +102,22 @@ real people, ranked by rating.
   column just exists for now, fillable manually via the Supabase table
   editor.
 - Server-side voting (`pages/api/vote.js`) with 1-vote-per-IP-per-battle
-  dedup and rating updates on every vote
+  dedup, dynamic Elo rating updates, and a `rating_history` row logged on
+  every vote (powers the Rankings page's Form arrows and confidence tiers)
 - Product creation (`pages/api/submit-product.js`, `POST`) — only name,
   website URL, and category are required. **Description and logo are
   optional**: if left blank, the server fetches the website's Open Graph
-  tags (`og:description`, `og:image`, falling back to `/favicon.ico`)
-  and uses those instead, converting any image to PNG via `sharp`. A
-  manually provided description or uploaded PNG logo always overrides
-  the auto-fetched one. If auto-fetch fails and no description was
-  given, product creation is rejected with a message asking for one —
-  a completely blank description everywhere isn't allowed, but a missing
-  logo is fine (falls back to a letter avatar in the UI).
-  **Auto-publishes immediately** — no review queue.
+  tags (or a real `<link rel="icon">`/`apple-touch-icon`, falling back to
+  `/favicon.ico` last) and uses those instead, converting any image to
+  PNG via `sharp`. A manually provided description or uploaded PNG logo
+  always overrides the auto-fetched one. If auto-fetch fails and no
+  description was given, product creation is rejected with a message
+  asking for one — a completely blank description everywhere isn't
+  allowed, but a missing logo is fine (falls back to a letter avatar).
+  **Category is auto-suggested** from the site's title/description using
+  plain keyword matching (`guessCategorySlug` — not AI/ML), shown as a
+  pre-selected, clearly-labeled "(suggested)" chip the person can freely
+  override. **Auto-publishes immediately** — no review queue.
 - Product search + recommendations (`pages/api/submit-product.js`, `GET`)
   — `?q=text` for fuzzy search, `?category=id` for top-rated products in
   a category. Either battle slot can be filled first — there's no "your
@@ -129,16 +133,39 @@ real people, ranked by rating.
   showing results to pick from or a `+ Add "{term}"` inline mini-form if
   nothing matches. Once both sides are resolved, shows an editable
   battle-question field and the required duration picker, then
-  "Create Battle". A "Categories" tab sits beside it, same
-  toggle-open-inline pattern, never a popup or native `<select>`.
-  Category lists scroll horizontally rather than wrapping.
-- Rankings page with category filter tabs and gold/silver/bronze tier
-  styling for the top 3
-- Product pages with a rating/record/win-rate/rank stat block and a
-  battle history list showing WON/LOST/TIE/LIVE per matchup
-- Battle pages (`/battle/[slug]`) and product profile pages
-  (`/product/[slug]`)
-- Full rankings page (`/rankings`)
+  "Create Battle".
+- Persistent header nav (`Header.js`): Battles / Rankings / Categories /
+  Challenge a competitor. Categories and Challenge a competitor route to
+  `/` with a `?panel=categories` or `?panel=battle` query param — the
+  homepage reads that param and expands the matching section inline.
+  Still never a popup or native `<select>`, just relocated out of a
+  homepage-only toggle row into the always-visible header.
+- Rankings page (`/rankings`) with inline-expand category and time-range
+  filters (Today / This week / This month / All time), three sort tabs
+  (Top rated / Rising / Most battles), gold/silver/bronze tier styling
+  for the top 3, a rating-confidence dot (Low/Medium/High, based on
+  battle count), and a Form column (rank movement over ~24h, derived
+  from `rating_history` — see the code comment on `computeForm` in
+  `pages/rankings.js` for exactly what approximation this is).
+- Battle pages (`/battle/[slug]`): category breadcrumb, Share/Visit×2
+  action row, a stats row (battle views, website clicks), a related-
+  battles section (same category, excluding the current one), and a
+  richer post-vote result panel (who you voted for, current score, total
+  voters, Share/Visit/Challenge-another actions) — shown both on the
+  standalone battle page and wherever `BattleCard` is embedded (e.g. the
+  homepage's live battle).
+- Click tracking (`pages/api/click.js`) — every "Visit" link on a battle
+  or product page routes through this redirect endpoint first, which
+  increments `battles.clicks` and only ever redirects to a URL it looked
+  up from the database itself (never a client-supplied redirect target,
+  to avoid an open-redirect vulnerability).
+- Shareable result-card images (`pages/api/og/[slug].js`, edge runtime,
+  via `@vercel/og`) — a 1200×630 PNG summarizing a battle's result, used
+  for the battle page's OG/Twitter meta tags and a direct
+  "Download result card" link.
+- Product pages (`/product/[slug]`) with a rating/record/win-rate/rank
+  stat block and a battle history list showing WON/LOST/TIE/LIVE per
+  matchup
 - Responsive layout — no fixed mobile-only width, scales up with `md:`
   breakpoints
 
@@ -164,20 +191,37 @@ real people, ranked by rating.
 - The "vs" input parser only recognizes the literal word " vs " (or
   "vs.") between the two terms — there's no natural-language fallback if
   someone phrases it differently
-- Category auto-suggestion (inferring a category from the site's content)
-  was scoped out — category is still a manual required pick from the
-  chip list. Nothing in this codebase calls an LLM to do that inference.
+- Category auto-suggestion uses plain keyword matching against the
+  site's title/description (`guessCategorySlug` in
+  `pages/api/submit-product.js`) — not an LLM or any ML model, and it's
+  honest about that. It will sometimes guess wrong or find nothing at
+  all for niche products; it's always just a pre-selected starting
+  point, never enforced.
 - Fuzzy search (`search_products()`, using `pg_trgm`) is meaningfully
   better than plain substring matching but isn't a full search engine —
   no typo tolerance tuning, no synonym dictionary beyond the manually
   filled `aliases` column, which has no UI yet
-- Website-click tracking has a `clicks` column reserved for it, but no
-  redirect endpoint or UI increments it yet — it will always read 0
-  until that's built
+- "Form" (rank movement on the Rankings page) compares a product's
+  current rank to an *approximate* rank from ~24h ago, computed by
+  taking whichever products already had `rating_history` by that cutoff
+  and ranking just those against each other — then comparing that
+  subset-ranking to today's full ranking. It's a reasonable signal, not
+  a rigorous backtest. See `computeForm` in `pages/rankings.js`.
+- The Rankings page's time-range filter (Today/This week/This
+  month/All time) recomputes win/loss/battle counts for that window from
+  actual completed battles, but the **rating** shown always reflects the
+  current overall value — it is never a point-in-time snapshot for that
+  window. A true time-windowed rating would require replaying rating
+  history from an arbitrary baseline, which wasn't built.
+- Click tracking (`pages/api/click.js`) counts a click any time someone
+  follows a Visit link through the redirect — it doesn't currently
+  de-duplicate repeat clicks from the same visitor the way voting does.
 
 ## Deliberately not built yet
 
-Auth, product claiming, payments, badges, tournaments, an API.
+Auth, product claiming, payments, badges, tournaments, an API. Also see
+the "Explicitly scoped out" note at the bottom of this file for a few
+specific items from a source design doc that were intentionally deferred.
 
 ## Recent changes (branding + hardening pass)
 
@@ -330,20 +374,15 @@ via the Supabase dashboard) before following step 2 above.
 ### Explicitly scoped out of this pass (from the same source doc)
 
 These were called out in the flow-redesign document this pass was based
-on, but intentionally left for later rather than bundled in:
+on, and left for later at the time. **Most have since shipped** — see
+"Recent changes (UI overhaul + rankings/battle rebuild)" further down
+for what changed and when. Still genuinely not built:
 
 - Claiming/ownership (X login or magic-link auth) — no accounts exist in
   this app yet at all
-- Website-click tracking — the `clicks` column exists, nothing writes to
-  it
-- Battle page actions beyond voting (share, visit, challenge-another,
-  browse-related) and the post-vote result panel
-- Shareable result-card images (would need real image generation, e.g.
-  `@vercel/og` — the single biggest remaining piece)
-- Homepage hero copy split for voters vs. founders, and the
-  `?product=...&vs=...` instant-battle URL pattern
-- Category auto-suggestion from site content (would need an LLM call;
-  none is wired into this codebase)
+- The `?product=...&vs=...` instant-battle URL pattern (the "vs" input
+  on the homepage covers the same need today, just not via a
+  shareable pre-filled URL)
 
 ### A note on what I could and couldn't verify myself
 
@@ -356,3 +395,81 @@ fetch, graceful fallback on any failure), but real websites are messy —
 expect to find and fix edge cases (unusual OG tag formats, sites that
 block the request outright, redirects, etc.) once this runs against real
 traffic on Vercel.
+
+## Recent changes (UI overhaul + rankings/battle rebuild)
+
+- **Fixed the Product B disappearing bug.** The two-column battle-creation
+  layout used `flex-1` without `min-w-0`. A flex item's default minimum
+  width is its *unwrapped content width* — with a 22-chip horizontal
+  category strip nested inside, that pushed the whole row (and Product
+  B's entire column) off-screen to the right. Because the page has
+  `overflow-x: hidden`, that overflow was silently clipped rather than
+  scrollable, making Product B look like it had vanished. Fixed by
+  adding `min-w-0` to both flex columns in `pages/index.js`. Nothing was
+  wrong with search or auto-detection — this was purely a layout bug.
+- **Hardened logo/favicon auto-fetch.** Now parses a real
+  `<link rel="icon">` / `apple-touch-icon` tag from the page instead of
+  blindly guessing `/favicon.ico`, and explicitly follows redirects.
+  Still won't work for every site — some block bot user agents or have
+  no icon/OG data at all — but this catches more real-world cases.
+- **Header nav restructured.** `Header.js` now has four persistent items
+  — Battles / Rankings / Categories / Challenge a competitor — instead
+  of Categories and Challenge living only on the homepage as toggle
+  tabs. Categories and Challenge a competitor are still plain links
+  (`/?panel=categories`, `/?panel=battle`); the homepage reads that
+  query param and expands the matching section inline. Still never a
+  popup or native `<select>`.
+- **Rating history added** (`rating_history` table, migration 3 in
+  `supabase-schema.sql`) — every vote now logs each product's new rating
+  to an append-only ledger. This is what powers two new things on the
+  Rankings page: a Form column (rank movement over ~24h) and a
+  confidence dot (Low/Medium/High, based on how many battles a rating
+  is built on).
+- **Rankings page rebuilt**: inline-expand category and time-range
+  filters (never popups), three sort tabs (Top rated / Rising / Most
+  battles), gold/silver/bronze tier styling for the top 3. The
+  time-range filter recomputes win/loss/battle counts for that window
+  from real completed battles — but rating itself always stays the
+  current overall value, not a point-in-time snapshot (see Known
+  simplifications above for why).
+- **Category list replaced category auto-suggestion (new)**: the
+  "+ Add a product" mini-form now suggests a category on website-URL
+  blur, using plain keyword matching against the fetched site title/
+  description (`guessCategorySlug`) — explicitly labeled "(suggested)"
+  in the UI, never enforced, and honestly not AI-based.
+- **Click tracking shipped**: `pages/api/click.js` is a new redirect
+  endpoint every "Visit" link now routes through (battle page, product
+  page, and the post-vote result panel). Increments `battles.clicks`
+  and only ever redirects to a URL it looked up itself from the
+  database — never a client-supplied target, to avoid becoming an
+  open redirect.
+- **Shareable result-card images shipped**: `pages/api/og/[slug].js` (new
+  file, edge runtime, `@vercel/og`) generates a 1200×630 PNG summarizing
+  a battle's result. Wired into the battle page's OG/Twitter meta tags
+  (real link previews now) and a "Download result card" link.
+- **Battle page actions + post-vote result panel shipped**: category
+  breadcrumb, Share/Visit×2 action row, a views/clicks stats row, and a
+  related-battles section (same category, via product A) on
+  `/battle/[slug]`. `BattleCard.js` itself now shows a full post-vote
+  panel — who you voted for, current score, total voters, and
+  Share/Visit/Challenge-another actions — inline wherever the card is
+  used (the standalone battle page and the homepage's embedded live
+  battle), not just as a one-line "vote counted" message.
+- **BattleCard restyled**: status line now flags low-vote results as
+  "EARLY RESULT", shows a trophy pill next to the ENDED badge once a
+  battle closes, and the question moved to sit between the avatars and
+  the vote percentages, matching the reference layout.
+- **Homepage hero and trending redesigned**: subhead copy updated
+  ("Discover products through real battles. Vote, compare, and challenge
+  competitors."), trending battles are now compact paired-avatar cards
+  instead of text rows. Note: the source doc's "hero copy split" asked
+  for two explicit, separately-labeled paths for voters vs. founders —
+  what shipped is lighter-touch (one hero + the header's standing
+  "Challenge a competitor" button serving as the founder path), not a
+  dedicated two-path component. Flagging that as a scope simplification
+  rather than a full implementation.
+- **`LeaderboardTable.js` gained a `mode` prop** (`"compact"` for the
+  homepage, `"full"` for Rankings) so one component serves both instead
+  of drifting into two near-duplicate implementations.
+- **`package.json`**: added `@vercel/og` for the result-card image
+  endpoint, alongside the `sharp` dependency added in the previous pass.

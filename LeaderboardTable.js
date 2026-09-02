@@ -1,17 +1,38 @@
 import Link from "next/link";
 import { logError } from "./lib/logger";
 
-// Tier styling for the top 3 spots — gold / silver / bronze. Arbitrary
-// hex values via Tailwind's bracket syntax work without touching the
-// theme config, since these are one-off accents specific to this table.
 const TIERS = {
   1: { bg: "bg-gold", text: "text-ink", ring: "ring-gold" },
   2: { bg: "bg-[#C7C9D1]", text: "text-ink", ring: "ring-[#C7C9D1]" },
   3: { bg: "bg-[#C68A4E]", text: "text-white", ring: "ring-[#C68A4E]" },
 };
 
+// Confidence is a simple function of how many battles a rating is based
+// on — not a statistical margin of error, just "how much to trust this
+// number." Cutoffs are a judgment call, not derived from anything.
+function getConfidence(battleCount) {
+  if (battleCount >= 30) return { label: "High", dotClass: "bg-[#1F9D55]" };
+  if (battleCount >= 10) return { label: "Medium", dotClass: "bg-gold" };
+  return { label: "Low", dotClass: "bg-grayText" };
+}
+
+function renderForm(delta) {
+  if (delta === null || delta === undefined || delta === 0) {
+    return <span className="text-grayText">—</span>;
+  }
+  if (delta > 0) {
+    return <span className="text-[#1F9D55]">↑{delta}</span>;
+  }
+  return <span className="text-cornerA">↓{Math.abs(delta)}</span>;
+}
+
 // products shape: [{ id, slug, name, rating, wins, losses, logo_url, category }]
-export default function LeaderboardTable({ products }) {
+// mode: "compact" (homepage — rank/product/record/win rate/rating) or
+//       "full" (rankings page — adds confidence, battle count, form)
+// form: optional map of productId -> signed rank change over ~24h (see
+// pages/rankings.js for how this is computed — it's an approximation,
+// not a precise time-series, documented there)
+export default function LeaderboardTable({ products, mode = "compact", form = {} }) {
   if (!Array.isArray(products)) {
     logError(
       "LeaderboardTable.render",
@@ -26,7 +47,7 @@ export default function LeaderboardTable({ products }) {
   }
 
   return (
-    <div className="flex flex-col gap-2 md:grid md:grid-cols-2 md:gap-3 lg:grid-cols-3">
+    <div className="flex flex-col gap-2">
       {products.map((p, i) => {
         if (!p || !p.id || !p.name) {
           logError(
@@ -38,9 +59,10 @@ export default function LeaderboardTable({ products }) {
         }
 
         const rank = i + 1;
-        const total = (p.wins ?? 0) + (p.losses ?? 0);
-        const winRate = total > 0 ? Math.round((p.wins / total) * 100) : 0;
+        const battleCount = (p.wins ?? 0) + (p.losses ?? 0);
+        const winRate = battleCount > 0 ? Math.round((p.wins / battleCount) * 100) : 0;
         const tier = TIERS[rank];
+        const confidence = getConfidence(battleCount);
 
         return (
           <Link
@@ -69,11 +91,27 @@ export default function LeaderboardTable({ products }) {
               <div className="font-mono text-[11px] text-grayText">
                 {p.category?.icon ? `${p.category.icon} ` : ""}
                 {p.wins ?? 0}W – {p.losses ?? 0}L · {winRate}% win rate
+                {mode === "full" && ` · ${battleCount} battles`}
               </div>
             </div>
             <div className="shrink-0 text-right">
-              <div className="font-mono text-sm font-bold">{p.rating ?? "—"}</div>
-              <div className="font-mono text-[9px] uppercase text-grayText">rating</div>
+              <div className="flex items-center justify-end gap-1.5">
+                {mode === "full" && (
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${confidence.dotClass}`}
+                    title={`${confidence.label} confidence`}
+                  />
+                )}
+                <span className="font-mono text-sm font-bold">{p.rating ?? "—"}</span>
+              </div>
+              <div className="font-mono text-[9px] uppercase text-grayText">
+                {mode === "full" ? confidence.label : "rating"}
+              </div>
+              {mode === "full" && (
+                <div className="mt-0.5 font-mono text-[10px] font-bold">
+                  {renderForm(form[p.id])}
+                </div>
+              )}
             </div>
           </Link>
         );

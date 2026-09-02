@@ -3,25 +3,13 @@ import { logError, logWarn } from "./lib/logger";
 
 // battle shape expected:
 // {
-//   id, slug, votes_a, votes_b, status, starts_at, ends_at, views, winner_id,
+//   id, slug, votes_a, votes_b, status, question, starts_at, ends_at,
+//   views, winner_id,
 //   product_a: { id, name, slug, logo_url },
 //   product_b: { id, name, slug, logo_url },
 // }
 
-function formatDateTime(iso) {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch (err) {
-    logError("BattleCard.formatDateTime", err, { iso });
-    return null;
-  }
-}
+const EARLY_RESULT_THRESHOLD = 20; // below this many votes, flag result as early/unreliable
 
 function formatTimeRemaining(endsAtIso) {
   if (!endsAtIso) return null;
@@ -40,12 +28,24 @@ function formatTimeRemaining(endsAtIso) {
   }
 }
 
+function formatEndedDate(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  } catch (err) {
+    logError("BattleCard.formatEndedDate", err, { iso });
+    return null;
+  }
+}
+
 export default function BattleCard({ battle }) {
   const [votesA, setVotesA] = useState(battle?.votes_a ?? 0);
   const [voted, setVoted] = useState(false);
+  const [votedSide, setVotedSide] = useState(null); // "a" | "b" | null
   const [voting, setVoting] = useState(false);
   const [error, setError] = useState(null);
   const [votesB, setVotesB] = useState(battle?.votes_b ?? 0);
+  const [shareCopied, setShareCopied] = useState(false);
 
   // Defensive guard: if a malformed battle object ever makes it this far,
   // fail loudly in the log with useful context instead of crashing render
@@ -69,8 +69,8 @@ export default function BattleCard({ battle }) {
     battle.status !== "live" ||
     (battle.ends_at && new Date(battle.ends_at) <= new Date());
   const timeRemaining = !hasEnded ? formatTimeRemaining(battle.ends_at) : null;
-  const startedLabel = formatDateTime(battle.starts_at);
-  const endedLabel = formatDateTime(battle.ends_at);
+  const endedDateLabel = hasEnded ? formatEndedDate(battle.ends_at) : null;
+  const isEarlyResult = !hasEnded && total > 0 && total < EARLY_RESULT_THRESHOLD;
 
   const winnerProduct =
     battle.winner_id === battle.product_a.id
@@ -106,6 +106,7 @@ export default function BattleCard({ battle }) {
       }
 
       setVoted(true);
+      setVotedSide(side);
     } catch (err) {
       // roll back the optimistic update
       if (side === "a") setVotesA((v) => v - 1);
@@ -121,37 +122,53 @@ export default function BattleCard({ battle }) {
     }
   }
 
+  async function shareResult() {
+    const url =
+      typeof window !== "undefined" ? `${window.location.origin}/battle/${battle.slug}` : "";
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${battle.product_a.name} vs ${battle.product_b.name}`,
+          text: battle.question || undefined,
+          url,
+        });
+        return;
+      }
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }
+    } catch (err) {
+      if (err?.name !== "AbortError") {
+        logError("BattleCard.shareResult", err, { battleId: battle.id });
+      }
+    }
+  }
+
   return (
     <div className="mx-5 mb-6 md:mx-8">
-      <div className="mb-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 font-mono text-[11px] font-bold tracking-wide md:justify-start">
-        {hasEnded ? (
-          <span className="text-grayText">ENDED</span>
-        ) : (
-          <span className="flex items-center gap-2 text-cornerA">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cornerA" />
-            LIVE BATTLE
-          </span>
-        )}
-        {timeRemaining && <span className="text-grayText">· {timeRemaining}</span>}
-        {typeof battle.views === "number" && (
-          <span className="text-grayText">· {battle.views.toLocaleString()} views</span>
-        )}
-      </div>
-
-      <div className="mx-auto md:max-w-xl">
-        {battle.question && (
-          <div className="mb-2 text-center text-sm font-bold text-ink md:text-left">
-            {battle.question}
-          </div>
-        )}
-      </div>
-
-      <div className="mx-auto rounded-2xl border border-line bg-white px-4 pt-5 md:max-w-xl">
-        {hasEnded && (
-          <div className="mb-3 rounded-lg border border-gold bg-paper px-3 py-2 text-center font-mono text-[11px] font-bold">
-            {winnerProduct ? `🏆 ${winnerProduct.name} wins` : "Tied — no winner"}
-          </div>
-        )}
+      <div className="mx-auto rounded-2xl border border-line bg-white p-4 md:max-w-xl">
+        {/* status row */}
+        <div className="mb-4 flex items-center justify-between font-mono text-[11px] font-bold tracking-wide">
+          {hasEnded ? (
+            <span className="text-grayText">
+              ENDED{endedDateLabel ? ` · ${endedDateLabel}` : ""}
+            </span>
+          ) : (
+            <span className="flex items-center gap-2 text-cornerA">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cornerA" />
+              LIVE BATTLE
+              {isEarlyResult && <span className="text-grayText">· EARLY RESULT</span>}
+              <span className="text-grayText">· {total.toLocaleString()} votes</span>
+            </span>
+          )}
+          {hasEnded && (
+            <span className="rounded-full border border-gold bg-paper px-3 py-1 text-[10px] text-ink">
+              {winnerProduct ? `🏆 ${winnerProduct.name} wins` : "Tied — no winner"}
+            </span>
+          )}
+        </div>
 
         <div className="flex items-start justify-between">
           <div className="flex w-[38%] flex-col items-center gap-2">
@@ -191,16 +208,18 @@ export default function BattleCard({ battle }) {
           </div>
         </div>
 
-        <div className="mt-5 flex justify-between">
+        {battle.question && (
+          <div className="mt-4 text-center text-sm font-bold text-ink">
+            {battle.question}
+          </div>
+        )}
+
+        <div className="mt-4 flex justify-between">
           <div className="w-[38%] text-center">
-            <div className="font-mono text-2xl font-bold text-cornerA">
-              {pctA}%
-            </div>
+            <div className="font-mono text-2xl font-bold text-cornerA">{pctA}%</div>
           </div>
           <div className="w-[38%] text-center">
-            <div className="font-mono text-2xl font-bold text-cornerB">
-              {pctB}%
-            </div>
+            <div className="font-mono text-2xl font-bold text-cornerB">{pctB}%</div>
           </div>
         </div>
 
@@ -209,20 +228,8 @@ export default function BattleCard({ battle }) {
           <div className="bg-cornerB" style={{ width: `${pctB}%` }} />
         </div>
 
-        <div className="pb-2 text-center font-mono text-[10px] text-grayText">
-          {total.toLocaleString()} VOTES
-        </div>
-
-        {(startedLabel || endedLabel) && (
-          <div className="pb-4 text-center font-mono text-[10px] text-grayText">
-            {startedLabel && <span>Started {startedLabel}</span>}
-            {startedLabel && endedLabel && <span> · </span>}
-            {endedLabel && <span>{hasEnded ? "Ended" : "Ends"} {endedLabel}</span>}
-          </div>
-        )}
-
         {!hasEnded && (
-          <div className="-mx-4 flex gap-px overflow-hidden rounded-b-2xl">
+          <div className="-mx-4 flex gap-px overflow-hidden">
             <button
               disabled={voted || voting}
               onClick={() => castVote(battle.product_a.id, "a")}
@@ -239,16 +246,58 @@ export default function BattleCard({ battle }) {
             </button>
           </div>
         )}
+
+        <div className="pt-3 text-center font-mono text-[10px] text-grayText">
+          {timeRemaining && <span>{timeRemaining} · </span>}
+          No signup required
+        </div>
       </div>
 
       {error && (
-        <div className="mt-2 text-center font-mono text-[10px] text-cornerA">
-          {error}
-        </div>
+        <div className="mt-2 text-center font-mono text-[10px] text-cornerA">{error}</div>
       )}
+
       {voted && !error && (
-        <div className="mt-2 text-center font-mono text-[10px] text-grayText">
-          Vote counted. Thanks for weighing in.
+        <div className="mx-auto mt-3 rounded-2xl border border-line bg-paper p-4 md:max-w-xl">
+          <div className="text-center text-sm font-bold text-ink">
+            You voted for {votedSide === "a" ? battle.product_a.name : battle.product_b.name}
+          </div>
+          <div className="mt-1 text-center font-mono text-xs text-grayText">
+            {pctA === pctB
+              ? "It's currently tied"
+              : `${pctA > pctB ? battle.product_a.name : battle.product_b.name} is winning ${Math.max(pctA, pctB)}%–${Math.min(pctA, pctB)}%`}
+          </div>
+          <div className="mt-1 text-center font-mono text-[10px] text-grayText">
+            {total.toLocaleString()} people have voted
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={shareResult}
+              className="flex-1 rounded-lg border border-line bg-white px-3 py-2 text-center font-mono text-[10px] font-bold text-ink hover:border-cornerA"
+            >
+              {shareCopied ? "Link copied" : "Share result"}
+            </button>
+            <a
+              href={`/api/click?battleId=${battle.id}&productId=${battle.product_a.id}`}
+              className="flex-1 rounded-lg border border-line bg-white px-3 py-2 text-center font-mono text-[10px] font-bold text-ink hover:border-cornerA"
+            >
+              Visit {battle.product_a.name}
+            </a>
+            <a
+              href={`/api/click?battleId=${battle.id}&productId=${battle.product_b.id}`}
+              className="flex-1 rounded-lg border border-line bg-white px-3 py-2 text-center font-mono text-[10px] font-bold text-ink hover:border-cornerA"
+            >
+              Visit {battle.product_b.name}
+            </a>
+            <a
+              href="/?panel=battle"
+              className="flex-1 rounded-lg border border-cornerA bg-cornerA px-3 py-2 text-center font-mono text-[10px] font-bold text-white hover:opacity-90"
+            >
+              Challenge another
+            </a>
+          </div>
         </div>
       )}
     </div>

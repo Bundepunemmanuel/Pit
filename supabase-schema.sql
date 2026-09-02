@@ -159,3 +159,22 @@ as $$
   order by similarity(p.name, search_term) desc, p.rating desc
   limit result_limit;
 $$;
+
+-- ---------- migration 3: rating history (powers Form arrows + confidence) ----------
+-- Safe to run any number of times.
+--
+-- Append-only ledger: one row per product per vote, logging the rating
+-- right after that vote. This is what "Form" (rank movement) and rating
+-- confidence tiers are computed from — neither existed before this,
+-- because there was previously no historical record, only the current
+-- `products.rating` value.
+create table if not exists rating_history (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references products(id),
+  battle_id uuid not null references battles(id),
+  rating integer not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists rating_history_product_idx
+  on rating_history (product_id, created_at desc);
