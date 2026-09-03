@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useState } from "react";
+import { Swords, Trophy, Tags, Menu, X } from "lucide-react";
 import { logError } from "./lib/logger";
 
 // Categories and Challenge a competitor live in this persistent header
@@ -10,6 +12,7 @@ import { logError } from "./lib/logger";
 // and expands a section of the page, same as before.
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const router = useRouter();
 
   function toggleMenu() {
     try {
@@ -18,6 +21,12 @@ export default function Header() {
       logError("Header.toggleMenu", err);
     }
   }
+
+  // "Active" means the current page matches — Categories/Challenge don't
+  // get their own active state since they're query-param panels on the
+  // homepage, not distinct pages.
+  const isBattles = router.pathname === "/";
+  const isRankings = router.pathname === "/rankings";
 
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-paper/90 backdrop-blur">
@@ -34,14 +43,30 @@ export default function Header() {
         </Link>
 
         {/* Desktop nav */}
-        <nav className="hidden items-center gap-6 font-mono text-[11px] uppercase tracking-wide text-grayText md:flex">
-          <Link href="/" className="hover:text-ink">
+        <nav className="hidden items-center gap-6 font-mono text-[11px] uppercase tracking-wide md:flex">
+          <Link
+            href="/"
+            className={`flex items-center gap-1.5 transition-colors ${
+              isBattles ? "font-bold text-ink" : "text-grayText hover:text-ink"
+            }`}
+          >
+            <Swords className="h-3.5 w-3.5" strokeWidth={2} />
             Battles
           </Link>
-          <Link href="/rankings" className="hover:text-ink">
+          <Link
+            href="/rankings"
+            className={`flex items-center gap-1.5 transition-colors ${
+              isRankings ? "font-bold text-ink" : "text-grayText hover:text-ink"
+            }`}
+          >
+            <Trophy className="h-3.5 w-3.5" strokeWidth={2} />
             Rankings
           </Link>
-          <Link href="/?panel=categories" className="hover:text-ink">
+          <Link
+            href="/?panel=categories"
+            className="flex items-center gap-1.5 text-grayText transition-colors hover:text-ink"
+          >
+            <Tags className="h-3.5 w-3.5" strokeWidth={2} />
             Categories
           </Link>
           <Link
@@ -58,33 +83,47 @@ export default function Header() {
           onClick={toggleMenu}
           aria-label="Toggle menu"
           aria-expanded={menuOpen}
-          className="flex h-8 w-8 flex-col items-center justify-center gap-1 md:hidden"
+          className="flex h-8 w-8 items-center justify-center text-ink md:hidden"
         >
-          <span className="h-0.5 w-5 bg-ink" />
-          <span className="h-0.5 w-5 bg-ink" />
+          {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
       </div>
 
       {menuOpen && (
-        <nav className="flex flex-col border-t border-line px-4 py-2 font-mono text-xs uppercase tracking-wide text-grayText md:hidden">
-          <Link href="/" className="border-b border-line py-3" onClick={() => setMenuOpen(false)}>
+        <nav className="flex flex-col border-t border-line px-4 py-2 font-mono text-xs uppercase tracking-wide md:hidden">
+          <Link
+            href="/"
+            className={`flex items-center gap-2 border-b border-line py-3 ${
+              isBattles ? "font-bold text-ink" : "text-grayText"
+            }`}
+            onClick={() => setMenuOpen(false)}
+          >
+            <Swords className="h-4 w-4" strokeWidth={2} />
             Battles
           </Link>
           <Link
             href="/rankings"
-            className="border-b border-line py-3"
+            className={`flex items-center gap-2 border-b border-line py-3 ${
+              isRankings ? "font-bold text-ink" : "text-grayText"
+            }`}
             onClick={() => setMenuOpen(false)}
           >
+            <Trophy className="h-4 w-4" strokeWidth={2} />
             Rankings
           </Link>
           <Link
             href="/?panel=categories"
-            className="border-b border-line py-3"
+            className="flex items-center gap-2 border-b border-line py-3 text-grayText"
             onClick={() => setMenuOpen(false)}
           >
+            <Tags className="h-4 w-4" strokeWidth={2} />
             Categories
           </Link>
-          <Link href="/?panel=battle" className="py-3 font-bold text-ink" onClick={() => setMenuOpen(false)}>
+          <Link
+            href="/?panel=battle"
+            className="py-3 font-bold text-ink"
+            onClick={() => setMenuOpen(false)}
+          >
             Challenge a competitor
           </Link>
         </nav>

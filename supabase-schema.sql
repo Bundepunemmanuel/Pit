@@ -178,3 +178,77 @@ create table if not exists rating_history (
 
 create index if not exists rating_history_product_idx
   on rating_history (product_id, created_at desc);
+
+-- ---------- migration 4: per-product click totals, duplicate category cleanup ----------
+-- Safe to run any number of times.
+
+-- Per-product total click count (sum across all that product's battles).
+-- Incremented directly in pages/api/click.js alongside the existing
+-- per-battle battles.clicks, so no aggregation query is needed to show
+-- it on leaderboard rows. Starts at 0 — does NOT retroactively backfill
+-- clicks that were already recorded on battles.clicks before this
+-- column existed.
+alter table products add column if not exists clicks integer not null default 0;
+
+-- General-purpose duplicate-category cleanup: if two category rows ever
+-- end up with the exact same name (this happened once already, when an
+-- older seed revision's row survived a category-list swap because a
+-- product still referenced it), keep the OLDEST row per name, move any
+-- products pointing at the newer duplicate(s) onto the kept row, then
+-- delete the now-unreferenced duplicates. Written to be safe to re-run
+-- and to catch this class of problem generally, not just this one case.
+do $$
+declare
+  dup record;
+  keeper_id uuid;
+begin
+  for dup in
+    select name, array_agg(id order by created_at asc) as ids
+    from categories
+    group by name
+    having count(*) > 1
+  loop
+    keeper_id := dup.ids[1];
+    update products
+      set category_id = keeper_id
+      where category_id = any(dup.ids[2:array_length(dup.ids, 1)]);
+    delete from categories
+      where id = any(dup.ids[2:array_length(dup.ids, 1)]);
+  end loop;
+end $$;
+
+-- ---------- migration 5: search_products() gains category_slug ----------
+-- Re-defines the function from migration 2 to also return the category's
+-- slug (needed for the icon-mapping lookup added in this pass). Postgres
+-- requires dropping a function before changing its return signature.
+drop function if exists search_products(text, int);
+
+create or replace function search_products(search_term text, result_limit int default 8)
+returns table (
+  id uuid,
+  name text,
+  slug text,
+  rating integer,
+  category_id uuid,
+  logo_url text,
+  category_name text,
+  category_icon text,
+  category_slug text
+)
+language sql
+stable
+as $$
+  select
+    p.id, p.name, p.slug, p.rating, p.category_id, p.logo_url,
+    c.name as category_name, c.icon as category_icon, c.slug as category_slug
+  from products p
+  left join categories c on c.id = p.category_id
+  where p.status = 'active'
+    and (
+      p.name ilike '%' || search_term || '%'
+      or search_term ilike any(p.aliases)
+      or similarity(p.name, search_term) > 0.2
+    )
+  order by similarity(p.name, search_term) desc, p.rating desc
+  limit result_limit;
+$$;

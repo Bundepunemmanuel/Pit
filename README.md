@@ -32,7 +32,7 @@ real people, ranked by rating.
      `relation "..." already exists`. Instead, run only the two
      `-- ---------- migration ...` blocks near the bottom of
      `supabase-schema.sql` (everything from the first
-     `-- ---------- migration` comment to the end of the file). Both
+     `-- ---------- migration` comment to the end of the file). All five
      migration blocks are idempotent — safe to run again even if you're
      not sure whether you already ran them. Then re-run `supabase-seed.sql`
      (also idempotent) to pick up the new category list.
@@ -43,6 +43,17 @@ real people, ranked by rating.
    limit — that matches the limits enforced in `pages/api/submit-product.js`.
    If you skip this step, logo uploads fail with a `Bucket not found`
    error (visible in your logs, see below) until the bucket exists.
+
+4. AI features (competitor suggestions, non-generic battle questions, and
+   the description-only fallback for sites with no meta description) need
+   a Gemini API key. In Vercel → your project → Settings →
+   Environment Variables, add `GEMINI_API_KEY` (server-only — never
+   prefixed with `NEXT_PUBLIC_`, so it's never sent to the browser). Get
+   a key from Google AI Studio. **Everything else in this app works fine
+   without this** — every Gemini call in `lib/gemini.js` fails gracefully
+   and falls back to non-AI behavior (generic battle question, keyword-
+   based category guess, requiring a manual description) if the key is
+   missing or a request fails.
 
 4. Copy `.env.local.example` to `.env.local` and fill in:
    - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` — from
@@ -473,3 +484,92 @@ traffic on Vercel.
   of drifting into two near-duplicate implementations.
 - **`package.json`**: added `@vercel/og` for the result-card image
   endpoint, alongside the `sharp` dependency added in the previous pass.
+
+## Recent changes (bug fixes + Gemini AI features)
+
+- **Fixed the logger's `"[object Object]"` bug.** Supabase/PostgREST
+  errors are plain objects (`{message, code, details, hint}`), not
+  instances of the JS `Error` class. `lib/logger.js`'s `serializeError`
+  only special-cased real `Error` objects — everything else fell through
+  to `String(err)`, which for a plain object just prints the useless
+  literal `"[object Object]"`. This had been silently discarding the
+  actual cause of every Supabase error since the logger was written.
+  Now extracts `.message`/`.code`/`.details`/`.hint` explicitly.
+- **Fixed the 413 "Body exceeded 1mb" errors.** Next's API routes
+  default to a 1MB body limit; a 2MB PNG logo, base64-encoded, comes in
+  around 2.7MB. Every submission with a real logo attached was silently
+  failing. `pages/api/submit-product.js` now sets a 4MB limit via
+  `export const config`.
+- **Fixed the rankings category/time-range dropdown not scrolling.**
+  Same root cause as the earlier Product-B-disappearing bug — a
+  horizontally-scrolling strip needs a width-bounded ancestor, or the
+  browser sizes the box to fit its unwrapped content instead of clipping
+  it into a scrollable region. Fixed by giving the dropdown wrapper divs
+  `w-full`.
+- **Added a general-purpose duplicate-category cleanup** (migration 4 in
+  `supabase-schema.sql`) — if two category rows ever end up with the
+  same name (this happened once, when an older seed revision's row
+  survived a category-list swap because a product still referenced it),
+  keeps the oldest row, reassigns any products pointing at the newer
+  duplicate(s), then deletes them. Written to catch this class of
+  problem generally, not just the one instance that was reported.
+- **Removed the 200-point matchmaking rating-gap cap** (`elo.js`'s
+  `isMatchAllowed` is no longer called in `pages/api/vote.js` — the
+  function itself is left in place in case this needs to come back).
+- **Homepage's live battle is now clickable through** to its full
+  `/battle/[slug]` page — a "View full battle →" link now sits below the
+  embedded `BattleCard`. Previously the only way to reach a battle's full
+  page was via Trending or the leaderboard.
+- **Reordered battle-page and post-vote actions** to Visit A / Share /
+  Visit B (was Share / Visit A / Visit B).
+- **Emoji replaced with real icons.** New `lib/categoryIcons.js` maps
+  each category slug to a `lucide-react` icon component. Every category
+  render spot across the app (`Header.js`, `pages/index.js`,
+  `pages/rankings.js`, `LeaderboardTable.js`, the product page) now uses
+  this instead of the emoji stored in `categories.icon` — that column
+  still exists in the database (harmless) but is no longer read by the
+  UI. Every category select query was updated to include `slug`, which
+  the icon lookup needs.
+- **Nav rebuilt** (`Header.js`): real icons next to each label (Swords/
+  Trophy/Tags), the current page is now visually distinguished (bold,
+  not just gray), and the mobile menu button is a real hamburger/X icon
+  instead of two plain bars.
+- **Per-product click totals added** (`products.clicks`, migration 4) —
+  `pages/api/click.js` now increments this alongside the existing
+  per-battle `battles.clicks`. Shown in `LeaderboardTable.js` rows and as
+  a new stat card on the product page.
+- **Gemini AI features added** (new `lib/gemini.js`, model
+  `gemini-3.5-flash-lite` as specified — see the note at the top of that
+  file about model names changing over time):
+  - **Non-generic battle questions**: `generateBattleQuestion` produces
+    a question grounded in what the two specific products actually do
+    (e.g. "Which handles large codebases better?"), instead of the
+    generic "Which is better?" template. A new preview endpoint
+    (`GET /api/submit-product?action=suggest-question`) lets the person
+    see and edit the AI-generated question in the Start-a-Battle UI
+    *before* committing, not just after. Falls back to the generic
+    template on any failure (no API key, timeout, unusable response) —
+    battle creation is never blocked by this.
+  - **"🔍 Suggest competitors"**: button-triggered (never automatic,
+    per instruction), calls `suggestCompetitors` for real, named
+    competitors of whichever product is already selected, then checks
+    Zoloop's own database for each one via the existing fuzzy search.
+    Matches show as one-tap "Select" chips; non-matches show as
+    "+ Add {name}" chips that open the add-product form pre-filled with
+    the AI's suggested name and domain (both still editable, since an
+    LLM can guess a domain wrong for a lesser-known product).
+  - **Description fallback**: if a site has no `og:description`,
+    `twitter:description`, or plain meta description at all — the one
+    gap HTML scraping structurally can't solve — `generateDescription`
+    gets one shot at writing a short, factual description from the
+    page's title and visible text. Only fires in that specific gap, not
+    on every submission. Still falls through to requiring a manual
+    description if this also fails.
+- **Switched HTML parsing from regex to `cheerio`** (a real HTML parser)
+  in `pages/api/submit-product.js`'s `fetchMetadata` — regex was
+  missing/mis-parsing tags on enough real sites (attribute order
+  variance, unusual whitespace, self-closing vs. not) that it was worth
+  the dependency. Also expanded the logo fallback chain to check
+  `twitter:image` before falling back to `<link rel="icon">` tags.
+- **`package.json`**: added `@google/generative-ai`, `lucide-react`, and
+  `cheerio`.

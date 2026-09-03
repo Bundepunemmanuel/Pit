@@ -272,6 +272,12 @@ export default function BattleCard({ battle }) {
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
+            <a
+              href={`/api/click?battleId=${battle.id}&productId=${battle.product_a.id}`}
+              className="flex-1 rounded-lg border border-line bg-white px-3 py-2 text-center font-mono text-[10px] font-bold text-ink hover:border-cornerA"
+            >
+              Visit {battle.product_a.name}
+            </a>
             <button
               type="button"
               onClick={shareResult}
@@ -279,12 +285,6 @@ export default function BattleCard({ battle }) {
             >
               {shareCopied ? "Link copied" : "Share result"}
             </button>
-            <a
-              href={`/api/click?battleId=${battle.id}&productId=${battle.product_a.id}`}
-              className="flex-1 rounded-lg border border-line bg-white px-3 py-2 text-center font-mono text-[10px] font-bold text-ink hover:border-cornerA"
-            >
-              Visit {battle.product_a.name}
-            </a>
             <a
               href={`/api/click?battleId=${battle.id}&productId=${battle.product_b.id}`}
               className="flex-1 rounded-lg border border-line bg-white px-3 py-2 text-center font-mono text-[10px] font-bold text-ink hover:border-cornerA"

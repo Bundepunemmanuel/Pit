@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CategoryIcon } from "./lib/categoryIcons";
 import { logError } from "./lib/logger";
 
 const TIERS = {
@@ -88,10 +89,13 @@ export default function LeaderboardTable({ products, mode = "compact", form = {}
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-bold">{p.name}</div>
-              <div className="font-mono text-[11px] text-grayText">
-                {p.category?.icon ? `${p.category.icon} ` : ""}
-                {p.wins ?? 0}W – {p.losses ?? 0}L · {winRate}% win rate
-                {mode === "full" && ` · ${battleCount} battles`}
+              <div className="flex items-center gap-1 font-mono text-[11px] text-grayText">
+                {p.category?.slug && <CategoryIcon slug={p.category.slug} className="h-3 w-3 shrink-0" />}
+                <span>
+                  {p.wins ?? 0}W – {p.losses ?? 0}L · {winRate}% win rate
+                  {mode === "full" && ` · ${battleCount} battles`}
+                  {typeof p.clicks === "number" && ` · ${p.clicks.toLocaleString()} clicks`}
+                </span>
               </div>
             </div>
             <div className="shrink-0 text-right">
