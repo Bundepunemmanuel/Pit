@@ -267,3 +267,32 @@ $$;
 -- charts don't silently drift from what's shown), but with battle_id
 -- null to mark them as manual adjustments rather than vote outcomes.
 alter table rating_history alter column battle_id drop not null;
+
+-- ---------- migration 7: vote/click boosts, battle origin, IP fraud signal ----------
+-- Run each statement below against your existing database (safe to run
+-- more than once — every clause is guarded).
+--
+-- votes_a_boost / votes_b_boost / clicks_boost: admin-adjusted numbers,
+-- kept SEPARATE from the real votes_a/votes_b/clicks columns rather than
+-- overwriting them. Anywhere the app shows a vote/click count publicly,
+-- it displays real + boost (so a boost looks the same as an organic
+-- number to visitors) — but the admin dashboard queries both columns
+-- separately so the real number is never lost or hidden from you.
+alter table battles add column if not exists votes_a_boost integer not null default 0;
+alter table battles add column if not exists votes_b_boost integer not null default 0;
+alter table products add column if not exists clicks_boost integer not null default 0;
+
+-- created_by: 'user' for battles started through the public "Challenge a
+-- competitor" flow, 'admin' for battles created directly from the admin
+-- dashboard. Powers the "ZOLOOP PICK" tag on the battle page (replacing
+-- "Community-created by real users" for admin-made battles, which
+-- otherwise would have been a false claim).
+alter table battles add column if not exists created_by text not null default 'user'
+  check (created_by in ('user', 'admin'));
+
+-- ip_hash: logged alongside voter_hash on every vote, but NOT part of
+-- the uniqueness constraint (voter_hash alone still is — see below).
+-- Purely for the admin dashboard's fraud-signal view, to help spot
+-- e.g. one IP behind an unusual number of distinct voter_hash values in
+-- a short window.
+alter table votes add column if not exists ip_hash text;

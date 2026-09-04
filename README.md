@@ -29,13 +29,18 @@ real people, ranked by rating.
    - **Already-running database** (you've run an earlier version of this
      file before): do **NOT** re-run the whole file — the `create table`
      statements near the top aren't safe to repeat and will fail with
-     `relation "..." already exists`. Instead, run only the two
+     `relation "..." already exists`. Instead, run only the
      `-- ---------- migration ...` blocks near the bottom of
      `supabase-schema.sql` (everything from the first
-     `-- ---------- migration` comment to the end of the file). All five
-     migration blocks are idempotent — safe to run again even if you're
-     not sure whether you already ran them. Then re-run `supabase-seed.sql`
-     (also idempotent) to pick up the new category list.
+     `-- ---------- migration` comment to the end of the file — 7 blocks
+     as of the admin dashboard + boost/vote-dedup update). All of them
+     are idempotent — safe to run again even if you're not sure whether
+     you already ran them. Then re-run `supabase-seed.sql` (also
+     idempotent) to pick up the new category list.
+     If you're already running an earlier version of this project and
+     only need what's new in this update, migration 7 (vote/click
+     boosts, `battles.created_by`, `votes.ip_hash`) is the one you're
+     missing — safe to run on its own.
 
 3. One-time Storage setup: in the Supabase dashboard, go to
    **Storage → New bucket**, name it `logos`, mark it **public**, and set
@@ -75,6 +80,13 @@ real people, ranked by rating.
      `you@example.com,teammate@example.com`). Falls back to a hardcoded
      default list in `lib/requireAdmin.js` if unset — **set this
      explicitly in production.**
+   - `NEXT_PUBLIC_SITE_URL` — recommended, e.g. `https://zoloop.vercel.app`
+     or your custom domain. Used to build the absolute `og:image` URL on
+     battle pages (link previews on WhatsApp/X/iMessage need an absolute
+     URL, not a relative one — this is what was broken before). If
+     unset, it's derived from the request's own host header instead, so
+     preview deployments still work, but setting it explicitly in
+     production avoids any ambiguity.
 
 5. Admin dashboard (`/emmybund`, not linked anywhere in the site's UI):
    create a Supabase Auth user for each admin (Supabase dashboard →
