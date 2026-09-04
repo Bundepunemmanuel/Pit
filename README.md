@@ -61,15 +61,37 @@ real people, ranked by rating.
    - `SUPABASE_SERVICE_ROLE_KEY` — same page, the `service_role` key.
      **Never** prefix this with `NEXT_PUBLIC_` or it'll ship to the
      browser. Keep it out of any public chat, repo, or screenshot.
+   - `BRANDFETCH_CLIENT_ID` — optional. Logo auto-fetch tries Brandfetch's
+     Logo API first (free tier, ~1M renders/mo, Client ID only — no
+     secret key). Get one from the Brandfetch developer portal. If unset,
+     logo auto-fetch just falls through to the existing OG-image/favicon
+     scrape, same as before this existed.
+   - `JINA_API_KEY` — optional. The description auto-fetch fallback uses
+     Jina Reader (r.jina.ai) for JS-rendered/SPA sites cheerio can't read
+     — works with **no key at all** on a shared free rate limit; setting
+     this raises that limit but is never required.
+   - `ADMIN_EMAILS` — comma-separated list of emails allowed into the
+     admin dashboard at `/emmybund` (e.g.
+     `you@example.com,teammate@example.com`). Falls back to a hardcoded
+     default list in `lib/requireAdmin.js` if unset — **set this
+     explicitly in production.**
 
-5. Run locally:
+5. Admin dashboard (`/emmybund`, not linked anywhere in the site's UI):
+   create a Supabase Auth user for each admin (Supabase dashboard →
+   Authentication → Users → Add user, email + password) and make sure
+   that email is in `ADMIN_EMAILS`. Sign in at `/emmybund` with that
+   email/password to edit product ratings and battle votes directly.
+
+6. Run locally:
 
    ```
    npm run dev
    ```
 
-6. Deploy: push to GitHub, import in Vercel, add the same three env vars
-   in the Vercel project settings, deploy.
+7. Deploy: push to GitHub, import in Vercel, add the env vars above in
+   the Vercel project settings, deploy. Vercel Web Analytics
+   (`<Analytics />` in `pages/_app.js`) starts collecting automatically
+   once deployed on Vercel — no extra env var needed.
 
 ## What's here (MVP scope)
 

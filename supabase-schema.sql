@@ -252,3 +252,18 @@ as $$
   order by similarity(p.name, search_term) desc, p.rating desc
   limit result_limit;
 $$;
+
+-- ---------- migration 6: nullable battle_id on rating_history (admin edits) ----------
+-- Safe to run on its own, any number of times (DROP NOT NULL is a no-op
+-- if the column is already nullable). This is the ONLY statement in
+-- this file you need to run against an existing database — everything
+-- above already exists on a live install and isn't guaranteed to be
+-- safe to re-run in full (the initial `create table` statements don't
+-- use `if not exists`).
+--
+-- The admin dashboard (pages/emmybund.js, pages/api/admin.js) can adjust
+-- a product's rating directly, outside of any specific battle. Those
+-- edits still get logged to rating_history (so Form arrows / rating
+-- charts don't silently drift from what's shown), but with battle_id
+-- null to mark them as manual adjustments rather than vote outcomes.
+alter table rating_history alter column battle_id drop not null;

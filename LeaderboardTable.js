@@ -27,9 +27,10 @@ function renderForm(delta) {
   return <span className="text-cornerA">↓{Math.abs(delta)}</span>;
 }
 
-// products shape: [{ id, slug, name, rating, wins, losses, logo_url, category }]
-// mode: "compact" (homepage — rank/product/record/win rate/rating) or
-//       "full" (rankings page — adds confidence, battle count, form)
+// products shape: [{ id, slug, name, rating, wins, losses, logo_url, category, total_votes }]
+// mode: "table" (homepage — real columned data table with headers) or
+//       "compact"/"full" (rankings page — card rows; "full" adds
+//       confidence, battle count, form)
 // form: optional map of productId -> signed rank change over ~24h (see
 // pages/rankings.js for how this is computed — it's an approximation,
 // not a precise time-series, documented there)
@@ -44,6 +45,93 @@ export default function LeaderboardTable({ products, mode = "compact", form = {}
       <p className="py-6 font-mono text-xs text-grayText">
         Couldn't load the leaderboard.
       </p>
+    );
+  }
+
+  if (mode === "table") {
+    return (
+      <div className="overflow-x-auto rounded-xl border border-line bg-white">
+        <table className="w-full min-w-[560px] border-collapse text-left">
+          <thead>
+            <tr className="border-b border-line font-mono text-[10px] uppercase tracking-wide text-grayText">
+              <th className="px-3 py-3 font-normal">Rank</th>
+              <th className="px-3 py-3 font-normal">Product</th>
+              <th className="px-3 py-3 text-right font-normal">Battles</th>
+              <th className="px-3 py-3 text-right font-normal">Win rate</th>
+              <th className="px-3 py-3 text-right font-normal">Total votes</th>
+              <th className="px-3 py-3 text-right font-normal">Rating</th>
+            </tr>
+          </thead>
+          <tbody>
+            {products.map((p, i) => {
+              if (!p || !p.id || !p.name) {
+                logError(
+                  "LeaderboardTable.render",
+                  new Error("Malformed product row"),
+                  { product: p, index: i }
+                );
+                return null;
+              }
+              const rank = i + 1;
+              const battleCount = (p.wins ?? 0) + (p.losses ?? 0);
+              const winRate = battleCount > 0 ? Math.round((p.wins / battleCount) * 100) : 0;
+              const tier = TIERS[rank];
+
+              return (
+                <tr
+                  key={p.id}
+                  className="border-b border-line last:border-0 hover:bg-paper"
+                >
+                  <td className="px-3 py-3">
+                    <span
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded-full font-mono text-xs font-bold ${
+                        tier ? `${tier.bg} ${tier.text}` : "bg-paper text-grayText"
+                      }`}
+                    >
+                      {rank}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <Link
+                      href={`/product/${p.slug}`}
+                      className="flex min-w-0 items-center gap-2.5"
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-paper font-display text-xs">
+                        {p.logo_url ? (
+                          <img src={p.logo_url} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          p.name[0]
+                        )}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-bold">{p.name}</span>
+                        {p.category?.slug && (
+                          <span className="flex items-center gap-1 font-mono text-[10px] text-grayText">
+                            <CategoryIcon slug={p.category.slug} className="h-3 w-3 shrink-0" />
+                            {p.category.name}
+                          </span>
+                        )}
+                      </span>
+                    </Link>
+                  </td>
+                  <td className="px-3 py-3 text-right font-mono text-xs text-grayText">
+                    {battleCount}
+                  </td>
+                  <td className="px-3 py-3 text-right font-mono text-xs text-grayText">
+                    {winRate}%
+                  </td>
+                  <td className="px-3 py-3 text-right font-mono text-xs text-grayText">
+                    {typeof p.total_votes === "number" ? p.total_votes.toLocaleString() : "—"}
+                  </td>
+                  <td className="px-3 py-3 text-right font-mono text-sm font-bold">
+                    {p.rating ?? "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     );
   }
 

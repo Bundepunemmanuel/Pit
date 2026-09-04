@@ -29,7 +29,7 @@ export default function Header() {
   const isRankings = router.pathname === "/rankings";
 
   return (
-    <header className="sticky top-0 z-50 border-b border-line bg-paper/90 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-line bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-8">
         <Link href="/" className="flex items-center gap-2" onClick={() => setMenuOpen(false)}>
           <img

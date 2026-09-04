@@ -170,8 +170,15 @@ export default function BattleCard({ battle }) {
           )}
         </div>
 
-        <div className="flex items-start justify-between">
-          <div className="flex w-[38%] flex-col items-center gap-2">
+        {battle.question && (
+          <div className="mb-4 text-center text-sm font-bold text-ink md:text-base">
+            {battle.question}
+          </div>
+        )}
+
+        {/* wide row: logo — percent — VS — percent — logo */}
+        <div className="flex items-center justify-between gap-1">
+          <div className="flex flex-1 flex-col items-center gap-2">
             <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-cornerA bg-cornerADim font-display text-xl text-cornerA md:h-16 md:w-16">
               {battle.product_a.logo_url ? (
                 <img
@@ -183,14 +190,28 @@ export default function BattleCard({ battle }) {
                 battle.product_a.name[0]
               )}
             </div>
-            <div className="text-center text-sm font-bold md:text-base">
+            <div className="text-center text-xs font-bold md:text-sm">
               {battle.product_a.name}
             </div>
           </div>
 
-          <div className="mt-5 font-display text-sm text-grayText md:mt-6">VS</div>
+          <div className="flex flex-1 flex-col items-center">
+            <div className="font-mono text-3xl font-bold text-cornerA md:text-4xl">{pctA}%</div>
+            <div className="mt-1 font-mono text-[10px] text-grayText">
+              {votesA.toLocaleString()} votes
+            </div>
+          </div>
 
-          <div className="flex w-[38%] flex-col items-center gap-2">
+          <div className="shrink-0 px-1 font-display text-sm text-grayText md:text-base">VS</div>
+
+          <div className="flex flex-1 flex-col items-center">
+            <div className="font-mono text-3xl font-bold text-cornerB md:text-4xl">{pctB}%</div>
+            <div className="mt-1 font-mono text-[10px] text-grayText">
+              {votesB.toLocaleString()} votes
+            </div>
+          </div>
+
+          <div className="flex flex-1 flex-col items-center gap-2">
             <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-cornerB bg-cornerBDim font-display text-xl text-cornerB md:h-16 md:w-16">
               {battle.product_b.logo_url ? (
                 <img
@@ -202,26 +223,17 @@ export default function BattleCard({ battle }) {
                 battle.product_b.name[0]
               )}
             </div>
-            <div className="text-center text-sm font-bold md:text-base">
+            <div className="text-center text-xs font-bold md:text-sm">
               {battle.product_b.name}
             </div>
           </div>
         </div>
 
-        {battle.question && (
-          <div className="mt-4 text-center text-sm font-bold text-ink">
-            {battle.question}
+        {total > 0 && (
+          <div className="mt-3 text-center font-mono text-[10px] text-grayText">
+            {total.toLocaleString()} people have already picked a side
           </div>
         )}
-
-        <div className="mt-4 flex justify-between">
-          <div className="w-[38%] text-center">
-            <div className="font-mono text-2xl font-bold text-cornerA">{pctA}%</div>
-          </div>
-          <div className="w-[38%] text-center">
-            <div className="font-mono text-2xl font-bold text-cornerB">{pctB}%</div>
-          </div>
-        </div>
 
         <div className="my-4 flex h-1.5 overflow-hidden rounded-full bg-line">
           <div className="bg-cornerA" style={{ width: `${pctA}%` }} />
@@ -229,26 +241,31 @@ export default function BattleCard({ battle }) {
         </div>
 
         {!hasEnded && (
-          <div className="-mx-4 flex gap-px overflow-hidden">
+          <div className="flex items-center gap-2">
             <button
               disabled={voted || voting}
               onClick={() => castVote(battle.product_a.id, "a")}
-              className="flex-1 bg-cornerA py-4 font-display text-xs uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              className="flex-1 rounded-lg bg-cornerA py-3 font-display text-[11px] uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60"
             >
-              Vote {battle.product_a.name}
+              Vote {battle.product_a.name} ⚡
             </button>
+            {timeRemaining && (
+              <span className="hidden shrink-0 font-mono text-[10px] text-grayText sm:block">
+                {timeRemaining}
+              </span>
+            )}
             <button
               disabled={voted || voting}
               onClick={() => castVote(battle.product_b.id, "b")}
-              className="flex-1 bg-cornerB py-4 font-display text-xs uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              className="flex-1 rounded-lg bg-cornerB py-3 font-display text-[11px] uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60"
             >
-              Vote {battle.product_b.name}
+              Vote {battle.product_b.name} ⚡
             </button>
           </div>
         )}
 
         <div className="pt-3 text-center font-mono text-[10px] text-grayText">
-          {timeRemaining && <span>{timeRemaining} · </span>}
+          {timeRemaining && <span className="sm:hidden">{timeRemaining} · </span>}
           No signup required
         </div>
       </div>
