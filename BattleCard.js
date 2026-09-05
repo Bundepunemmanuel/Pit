@@ -1,15 +1,49 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { logError, logWarn } from "./lib/logger";
+import { getAvatarTint } from "./lib/categoryIcons";
 
 // battle shape expected:
 // {
 //   id, slug, votes_a, votes_b, status, question, starts_at, ends_at,
-//   views, winner_id,
+//   views, winner_id, created_by,
 //   product_a: { id, name, slug, logo_url },
 //   product_b: { id, name, slug, logo_url },
 // }
+//
+// mode: "full" (homepage hero, battle detail page — larger, richer
+// post-vote panel) or "compact" (Top 3 / Battles page grids — smaller,
+// and Share/Visit/Details are always visible rather than gated behind
+// voting first, since a listing page needs those actions reachable
+// without committing to a vote).
 
 const EARLY_RESULT_THRESHOLD = 20; // below this many votes, flag result as early/unreliable
+const VOTED_STORAGE_PREFIX = "zl_voted_";
+
+// Persists "I already voted on battle X, for side Y" in localStorage so
+// the button greys out immediately on return visits — not just after a
+// failed duplicate-vote request round-trip to the server. The server's
+// cookie-based check (see pages/api/vote.js) is still the real
+// enforcement; this is purely a faster/friendlier client-side reflection
+// of the same fact.
+function getStoredVote(battleId) {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(`${VOTED_STORAGE_PREFIX}${battleId}`);
+  } catch (err) {
+    return null; // localStorage can throw in private-browsing/storage-blocked contexts
+  }
+}
+
+function storeVote(battleId, side) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`${VOTED_STORAGE_PREFIX}${battleId}`, side);
+  } catch (err) {
+    // Non-fatal — worst case this device just relies on the server's
+    // cookie-based rejection instead of the instant client-side grey-out.
+  }
+}
 
 function formatTimeRemaining(endsAtIso) {
   if (!endsAtIso) return null;
@@ -38,7 +72,23 @@ function formatEndedDate(iso) {
   }
 }
 
-export default function BattleCard({ battle }) {
+function Avatar({ product, size, tint }) {
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-line font-display ${size}`}
+      style={product.logo_url ? undefined : { background: tint.bg, color: tint.text }}
+    >
+      {product.logo_url ? (
+        <img src={product.logo_url} alt="" className="h-full w-full object-cover" />
+      ) : (
+        product.name[0]
+      )}
+    </div>
+  );
+}
+
+export default function BattleCard({ battle, mode = "full" }) {
+  const compact = mode === "compact";
   const [votesA, setVotesA] = useState(battle?.votes_a ?? 0);
   const [voted, setVoted] = useState(false);
   const [votedSide, setVotedSide] = useState(null); // "a" | "b" | null
@@ -46,6 +96,16 @@ export default function BattleCard({ battle }) {
   const [error, setError] = useState(null);
   const [votesB, setVotesB] = useState(battle?.votes_b ?? 0);
   const [shareCopied, setShareCopied] = useState(false);
+
+  useEffect(() => {
+    if (!battle?.id) return;
+    const stored = getStoredVote(battle.id);
+    if (stored === "a" || stored === "b") {
+      setVoted(true);
+      setVotedSide(stored);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [battle?.id]);
 
   // Defensive guard: if a malformed battle object ever makes it this far,
   // fail loudly in the log with useful context instead of crashing render
@@ -79,6 +139,9 @@ export default function BattleCard({ battle }) {
       ? battle.product_b
       : null;
 
+  const tintA = getAvatarTint(battle.product_a.name);
+  const tintB = getAvatarTint(battle.product_b.name);
+
   async function castVote(productId, side) {
     if (voted || voting || hasEnded) return;
     setVoting(true);
@@ -107,6 +170,7 @@ export default function BattleCard({ battle }) {
 
       setVoted(true);
       setVotedSide(side);
+      storeVote(battle.id, side);
     } catch (err) {
       // roll back the optimistic update
       if (side === "a") setVotesA((v) => v - 1);
@@ -146,32 +210,35 @@ export default function BattleCard({ battle }) {
     }
   }
 
+  const cardShadow = compact ? "shadow-[3px_3px_0_#0B0C10]" : "shadow-[4px_4px_0_#0B0C10]";
+  const avatarSize = compact ? "h-10 w-10 text-sm" : "h-14 w-14 text-xl md:h-16 md:w-16";
+  const pctSize = compact ? "text-xl" : "text-3xl md:text-4xl";
+
   return (
-    <div className="mx-5 mb-6 md:mx-8">
-      <div className="mx-auto rounded-2xl border border-line bg-white p-4 md:max-w-xl">
-        {/* status row */}
-        <div className="mb-4 flex items-center justify-between font-mono text-[11px] font-bold tracking-wide">
-          {hasEnded ? (
+    <div className={compact ? "" : "mx-5 mb-6 md:mx-8"}>
+      <div
+        className={`mx-auto rounded-2xl border border-line bg-white ${cardShadow} ${
+          compact ? "p-3" : "p-4 md:max-w-xl"
+        }`}
+      >
+        {/* status row — only for ended battles now. A still-live battle
+        showed "LIVE BATTLE · N votes" here before, which was redundant
+        with the percentages/vote counts already visible below; removed.
+        The ended/winner badge stays since it's the only place that info
+        appears at all. */}
+        {hasEnded && (
+          <div className="mb-3 flex items-center justify-between font-mono text-[11px] font-bold tracking-wide">
             <span className="text-grayText">
               ENDED{endedDateLabel ? ` · ${endedDateLabel}` : ""}
             </span>
-          ) : (
-            <span className="flex items-center gap-2 text-cornerA">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cornerA" />
-              LIVE BATTLE
-              {isEarlyResult && <span className="text-grayText">· EARLY RESULT</span>}
-              <span className="text-grayText">· {total.toLocaleString()} votes</span>
-            </span>
-          )}
-          {hasEnded && (
             <span className="rounded-full border border-gold bg-paper px-3 py-1 text-[10px] text-ink">
               {winnerProduct ? `🏆 ${winnerProduct.name} wins` : "Tied — no winner"}
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
         {battle.question && (
-          <div className="mb-4 text-center text-sm font-bold text-ink md:text-base">
+          <div className={`mb-3 text-center font-bold text-ink ${compact ? "text-xs" : "text-sm md:text-base mb-4"}`}>
             {battle.question}
           </div>
         )}
@@ -179,24 +246,14 @@ export default function BattleCard({ battle }) {
         {/* wide row: logo — percent — VS — percent — logo */}
         <div className="flex items-center justify-between gap-1">
           <div className="flex flex-1 flex-col items-center gap-2">
-            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-cornerA bg-cornerADim font-display text-xl text-cornerA md:h-16 md:w-16">
-              {battle.product_a.logo_url ? (
-                <img
-                  src={battle.product_a.logo_url}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                battle.product_a.name[0]
-              )}
-            </div>
-            <div className="text-center text-xs font-bold md:text-sm">
+            <Avatar product={battle.product_a} size={avatarSize} tint={tintA} />
+            <div className={`text-center font-bold ${compact ? "text-[11px]" : "text-xs md:text-sm"}`}>
               {battle.product_a.name}
             </div>
           </div>
 
           <div className="flex flex-1 flex-col items-center">
-            <div className="font-mono text-3xl font-bold text-cornerA md:text-4xl">{pctA}%</div>
+            <div className={`font-mono font-bold text-cornerA ${pctSize}`}>{pctA}%</div>
             <div className="mt-1 font-mono text-[10px] text-grayText">
               {votesA.toLocaleString()} votes
             </div>
@@ -205,37 +262,27 @@ export default function BattleCard({ battle }) {
           <div className="shrink-0 px-1 font-display text-sm text-grayText md:text-base">VS</div>
 
           <div className="flex flex-1 flex-col items-center">
-            <div className="font-mono text-3xl font-bold text-cornerB md:text-4xl">{pctB}%</div>
+            <div className={`font-mono font-bold text-cornerB ${pctSize}`}>{pctB}%</div>
             <div className="mt-1 font-mono text-[10px] text-grayText">
               {votesB.toLocaleString()} votes
             </div>
           </div>
 
           <div className="flex flex-1 flex-col items-center gap-2">
-            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-cornerB bg-cornerBDim font-display text-xl text-cornerB md:h-16 md:w-16">
-              {battle.product_b.logo_url ? (
-                <img
-                  src={battle.product_b.logo_url}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                battle.product_b.name[0]
-              )}
-            </div>
-            <div className="text-center text-xs font-bold md:text-sm">
+            <Avatar product={battle.product_b} size={avatarSize} tint={tintB} />
+            <div className={`text-center font-bold ${compact ? "text-[11px]" : "text-xs md:text-sm"}`}>
               {battle.product_b.name}
             </div>
           </div>
         </div>
 
-        {total > 0 && (
+        {!compact && total > 0 && (
           <div className="mt-3 text-center font-mono text-[10px] text-grayText">
             {total.toLocaleString()} people have already picked a side
           </div>
         )}
 
-        <div className="my-4 flex h-1.5 overflow-hidden rounded-full bg-line">
+        <div className={`flex h-1.5 overflow-hidden rounded-full bg-line ${compact ? "my-3" : "my-4"}`}>
           <div className="bg-cornerA" style={{ width: `${pctA}%` }} />
           <div className="bg-cornerB" style={{ width: `${pctB}%` }} />
         </div>
@@ -245,36 +292,72 @@ export default function BattleCard({ battle }) {
             <button
               disabled={voted || voting}
               onClick={() => castVote(battle.product_a.id, "a")}
-              className="flex-1 rounded-lg bg-cornerA py-3 font-display text-[11px] uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              className={`flex-1 rounded-lg bg-cornerA font-display uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60 ${
+                compact ? "py-2 text-[10px]" : "py-3 text-[11px]"
+              }`}
             >
               Vote {battle.product_a.name} ⚡
             </button>
             {timeRemaining && (
-              <span className="hidden shrink-0 font-mono text-[10px] text-grayText sm:block">
-                {timeRemaining}
-              </span>
+              <span className="shrink-0 font-mono text-[9px] text-grayText">{timeRemaining}</span>
             )}
             <button
               disabled={voted || voting}
               onClick={() => castVote(battle.product_b.id, "b")}
-              className="flex-1 rounded-lg bg-cornerB py-3 font-display text-[11px] uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              className={`flex-1 rounded-lg bg-cornerB font-display uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-60 ${
+                compact ? "py-2 text-[10px]" : "py-3 text-[11px]"
+              }`}
             >
               Vote {battle.product_b.name} ⚡
             </button>
           </div>
         )}
 
-        <div className="pt-3 text-center font-mono text-[10px] text-grayText">
-          {timeRemaining && <span className="sm:hidden">{timeRemaining} · </span>}
-          No signup required
-        </div>
+        {/* Compact mode (Battles page / Top 3): Share, Visit, and Details
+        are ALWAYS available here, not gated behind voting first — a
+        listing page needs those actions reachable without forcing a
+        commitment to vote. */}
+        {compact && (
+          <div className="mt-3 flex flex-wrap gap-1.5 border-t border-line pt-3">
+            <a
+              href={`/api/click?battleId=${battle.id}&productId=${battle.product_a.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="rounded-full border border-line bg-white px-2.5 py-1 font-mono text-[9px] font-bold text-ink hover:border-cornerA"
+            >
+              Visit {battle.product_a.name}
+            </a>
+            <a
+              href={`/api/click?battleId=${battle.id}&productId=${battle.product_b.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="rounded-full border border-line bg-white px-2.5 py-1 font-mono text-[9px] font-bold text-ink hover:border-cornerA"
+            >
+              Visit {battle.product_b.name}
+            </a>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                shareResult();
+              }}
+              className="rounded-full border border-line bg-white px-2.5 py-1 font-mono text-[9px] font-bold text-ink hover:border-cornerA"
+            >
+              {shareCopied ? "Copied" : "Share"}
+            </button>
+            <Link
+              href={`/battle/${battle.slug}`}
+              className="ml-auto rounded-full border border-cornerA bg-cornerA px-2.5 py-1 font-mono text-[9px] font-bold text-white hover:opacity-90"
+            >
+              See details →
+            </Link>
+          </div>
+        )}
       </div>
 
-      {error && (
+      {!compact && error && (
         <div className="mt-2 text-center font-mono text-[10px] text-cornerA">{error}</div>
       )}
 
-      {voted && !error && (
+      {!compact && voted && !error && (
         <div className="mx-auto mt-3 rounded-2xl border border-line bg-paper p-4 md:max-w-xl">
           <div className="text-center text-sm font-bold text-ink">
             You voted for {votedSide === "a" ? battle.product_a.name : battle.product_b.name}

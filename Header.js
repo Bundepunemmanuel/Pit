@@ -1,15 +1,18 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useState } from "react";
-import { Swords, Trophy, Tags, Menu, X } from "lucide-react";
+import { Home, Swords, Trophy, Menu, X } from "lucide-react";
 import { logError } from "./lib/logger";
 
-// Categories and Challenge a competitor live in this persistent header
-// now (previously they were homepage-only toggle tabs). Both are plain
-// links to "/" with a `panel` query param — pages/index.js reads that
-// param to auto-open the right inline panel. Still never a popup/modal:
-// clicking either just navigates to (or, if already on) the homepage
-// and expands a section of the page, same as before.
+// Challenge a competitor lives in this persistent header now (previously
+// it was a homepage-only toggle tab). It's a plain link to "/" with a
+// `panel` query param — pages/index.js reads that param to auto-open the
+// inline panel. Still never a popup/modal: clicking it just navigates to
+// (or, if already on) the homepage and expands a section of the page.
+// Categories used to live here too as a homepage panel link — it's now
+// a permanent scrollable pill row on /battles instead (see pages/battles.js),
+// since filtering by category is really a Battles-page concern, not a
+// site-wide nav destination.
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
@@ -22,10 +25,8 @@ export default function Header() {
     }
   }
 
-  // "Active" means the current page matches — Categories/Challenge don't
-  // get their own active state since they're query-param panels on the
-  // homepage, not distinct pages.
-  const isBattles = router.pathname === "/";
+  const isHome = router.pathname === "/";
+  const isBattles = router.pathname === "/battles";
   const isRankings = router.pathname === "/rankings";
 
   return (
@@ -47,6 +48,15 @@ export default function Header() {
           <Link
             href="/"
             className={`flex items-center gap-1.5 transition-colors ${
+              isHome ? "font-bold text-ink" : "text-grayText hover:text-ink"
+            }`}
+          >
+            <Home className="h-3.5 w-3.5" strokeWidth={2} />
+            Home
+          </Link>
+          <Link
+            href="/battles"
+            className={`flex items-center gap-1.5 transition-colors ${
               isBattles ? "font-bold text-ink" : "text-grayText hover:text-ink"
             }`}
           >
@@ -61,13 +71,6 @@ export default function Header() {
           >
             <Trophy className="h-3.5 w-3.5" strokeWidth={2} />
             Rankings
-          </Link>
-          <Link
-            href="/?panel=categories"
-            className="flex items-center gap-1.5 text-grayText transition-colors hover:text-ink"
-          >
-            <Tags className="h-3.5 w-3.5" strokeWidth={2} />
-            Categories
           </Link>
           <Link
             href="/?panel=battle"
@@ -94,6 +97,16 @@ export default function Header() {
           <Link
             href="/"
             className={`flex items-center gap-2 border-b border-line py-3 ${
+              isHome ? "font-bold text-ink" : "text-grayText"
+            }`}
+            onClick={() => setMenuOpen(false)}
+          >
+            <Home className="h-4 w-4" strokeWidth={2} />
+            Home
+          </Link>
+          <Link
+            href="/battles"
+            className={`flex items-center gap-2 border-b border-line py-3 ${
               isBattles ? "font-bold text-ink" : "text-grayText"
             }`}
             onClick={() => setMenuOpen(false)}
@@ -110,14 +123,6 @@ export default function Header() {
           >
             <Trophy className="h-4 w-4" strokeWidth={2} />
             Rankings
-          </Link>
-          <Link
-            href="/?panel=categories"
-            className="flex items-center gap-2 border-b border-line py-3 text-grayText"
-            onClick={() => setMenuOpen(false)}
-          >
-            <Tags className="h-4 w-4" strokeWidth={2} />
-            Categories
           </Link>
           <Link
             href="/?panel=battle"

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CategoryIcon } from "./lib/categoryIcons";
+import { CategoryIcon, getAvatarTint } from "./lib/categoryIcons";
 import { logError } from "./lib/logger";
 
 const TIERS = {
@@ -50,7 +50,7 @@ export default function LeaderboardTable({ products, mode = "compact", form = {}
 
   if (mode === "table") {
     return (
-      <div className="overflow-x-auto rounded-xl border border-line bg-white">
+      <div className="overflow-x-auto rounded-xl border border-line bg-white shadow-[4px_4px_0_#0B0C10]">
         <table className="w-full min-w-[560px] border-collapse text-left">
           <thead>
             <tr className="border-b border-line font-mono text-[10px] uppercase tracking-wide text-grayText">
@@ -76,6 +76,7 @@ export default function LeaderboardTable({ products, mode = "compact", form = {}
               const battleCount = (p.wins ?? 0) + (p.losses ?? 0);
               const winRate = battleCount > 0 ? Math.round((p.wins / battleCount) * 100) : 0;
               const tier = TIERS[rank];
+              const tint = getAvatarTint(p.name);
 
               return (
                 <tr
@@ -96,7 +97,10 @@ export default function LeaderboardTable({ products, mode = "compact", form = {}
                       href={`/product/${p.slug}`}
                       className="flex min-w-0 items-center gap-2.5"
                     >
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-paper font-display text-xs">
+                      <span
+                        className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line font-display text-xs"
+                        style={p.logo_url ? undefined : { background: tint.bg, color: tint.text }}
+                      >
                         {p.logo_url ? (
                           <img src={p.logo_url} alt="" className="h-full w-full object-cover" />
                         ) : (
@@ -152,12 +156,13 @@ export default function LeaderboardTable({ products, mode = "compact", form = {}
         const winRate = battleCount > 0 ? Math.round((p.wins / battleCount) * 100) : 0;
         const tier = TIERS[rank];
         const confidence = getConfidence(battleCount);
+        const tint = getAvatarTint(p.name);
 
         return (
           <Link
             key={p.id}
             href={`/product/${p.slug}`}
-            className={`flex items-center gap-3 rounded-xl border bg-white px-3 py-3 transition-colors hover:border-cornerA ${
+            className={`flex items-center gap-3 rounded-xl border bg-white px-3 py-3 shadow-[3px_3px_0_#0B0C10] transition-colors hover:border-cornerA ${
               tier ? `border-line ring-1 ${tier.ring}` : "border-line"
             }`}
           >
@@ -168,7 +173,10 @@ export default function LeaderboardTable({ products, mode = "compact", form = {}
             >
               {rank}
             </div>
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-paper font-display text-sm">
+            <div
+              className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line font-display text-sm"
+              style={p.logo_url ? undefined : { background: tint.bg, color: tint.text }}
+            >
               {p.logo_url ? (
                 <img src={p.logo_url} alt="" className="h-full w-full object-cover" />
               ) : (
